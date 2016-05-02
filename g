@@ -31,7 +31,7 @@ else
     eval $(scramv1 runtime -sh);
 fi;
 if [[ "${SAVCOL}" != "" ]]; then export CMSSW_PS1_COLOR=${SAVCOL}; fi;
-. ~/sh/cmssw_ps1; . ~/sh/d; . ~/sh/r; .  ~/sh/vg; .  ~/sh/sv; . ~/sh/ng
+. ~/sh/cmssw_ps1; . ~/sh/d; . ~/sh/r; .  ~/sh/vg; 
 #. ~/sh/ipy
 alias ipy=ipython
 ulimit -s unlimited
