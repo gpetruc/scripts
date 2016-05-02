@@ -1,0 +1,1 @@
+for f in *.stderr *.log; do echo -e  "$f\t$(~/sh/timeErr $f)"; done | sort -t_ -k2 -n

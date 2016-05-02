@@ -1,0 +1,17 @@
+#!/bin/bash
+FIGDIR=/afs/cern.ch/user/g/gpetrucc/scratch0/figlet/figlet222
+PREFIX=""; FIRSTPREFIX=""; LASTLINE=""
+if [[ "$1" == "-p" ]]; then
+         PREFIX='##   ';
+    FIRSTPREFIX='##   ';
+       LASTLINE='##   ';
+    shift;
+elif [[ "$1" == "-c" ]]; then
+    FIRSTPREFIX='/*   ';
+         PREFIX=' *   ';
+       LASTLINE=' */  ';
+    shift;
+fi;
+#$FIGDIR/figlet -w140 -f $FIGDIR/fonts/standard.flf $1 | sed "s+^+$PREFIX+";
+$FIGDIR/figlet -f $FIGDIR/fonts/standard.flf $* | awk "{if (i) sub(\"^\",\"$PREFIX\"); else sub(\"^\",\"$FIRSTPREFIX\"); i++; print;}"
+if [[ "$LASTLINE" != "" ]]; then echo "$LASTLINE"; fi;

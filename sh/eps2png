@@ -1,0 +1,5 @@
+#!/bin/sh
+OPTIONS="-q  -dBATCH -dSAFER  -dNOPAUSE  -dAlignToPixels=0 -dEPSCrop  -dPrinted -dTextAlphaBits=4 -dGraphicsAlphaBits=4 -sDEVICE=png16m";
+for F in $*; do
+    gs $OPTIONS -sOutputFile="${F/.eps/.png}" -q "${F}" -c showpage -c quit
+done

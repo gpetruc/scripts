@@ -1,0 +1,30 @@
+#!/bin/bash
+CFG=$1; shift;
+BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+#LOG="$BASE.log.$(date "+%Y.%m.%d-%H.%M.%S")";
+LOG="$BASE.log";
+if [[ "$1" != "" ]] && [[ "$(basename $0)" == "ra" ]]; then 
+    LOG="$BASE.log.$1";
+fi;
+if [[ "$(basename $0)" == "ral" ]]; then
+    if test -f $LOG; then
+        I=1; 
+        while test -f ${LOG}.${I}; do I=$(($I+1)); done; 
+        LOG=${LOG}.${I};
+    fi;
+fi;
+echo "## cmsRun $*" > $LOG;
+if [[ "${CFG%%.py}.py" == "$CFG" ]]; then
+if python $CFG $*  >> $LOG 2>&1; then
+echo "## cmsRun $*" > $LOG;
+cmsRun $CFG $* 2>&1 | tee -a $LOG;
+~/sh/report $LOG;
+else
+cat $LOG
+fi;
+else
+echo "## cmsRun $*" > $LOG;
+cmsRun $CFG $* 2>&1 | tee -a $LOG;
+~/sh/report $LOG;
+fi;
+

@@ -1,0 +1,181 @@
+#!/bin/bash
+#alias vg="valgrind --tool=callgrind --combine-dumps=yes --instr-atstart=no --simulate-cache=yes  --dump-instr=yes --separate-recs=1 cmsRun"
+export GP_VALGRIND=valgrind
+function vg {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ export OUT=callgrind-$BASE.out.$POSTFIX
+ $GP_VALGRIND --tool=callgrind --combine-dumps=yes --instr-atstart=no --simulate-cache=yes  --dump-instr=yes --separate-recs=1 cmsRun $CFG 2>&1 | tee callgrind-$BASE.log.$POSTFIX
+ CO=$(ls -traa callgrind.out.* | perl -ne 'm/\.\d+$/ and print' | tail -n 1);
+ test $CO && test -f $CO && mv -v $CO $OUT
+}
+function vgx {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ export OUT=callgrind-$BASE.out.$POSTFIX
+ valgrind --tool=callgrind --combine-dumps=yes --instr-atstart=yes --simulate-cache=yes  --dump-instr=yes --separate-recs=1 cmsRun $CFG 2>&1 | tee callgrind-$BASE.log.$POSTFIX
+ CO=$(ls -traa callgrind.out.* | perl -ne 'm/\.\d+$/ and print' | tail -n 1);
+ test $CO && test -f $CO && mv -v $CO $OUT
+}
+function vgm {
+ VGSUPP=""
+ which cmsvgsupp 2> /dev/null 1>&2 && VGSUPP=$(cmsvgsupp)
+ CFG=$1
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ LOG="$BASE.log"
+ if [[ "$2" != "" ]]; then LOG="$LOG.$2"; fi
+ valgrind --tool=memcheck --leak-check=yes --show-reachable=yes $VGSUPP --num-callers=50 --track-fds=yes cmsRun  $CFG 2>&1 | tee memcheck-$LOG
+}
+function vgme {
+ VGSUPP=""
+ which cmsvgsupp 2> /dev/null 1>&2 && VGSUPP=$(cmsvgsupp)
+ CFG=$1
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ LOG="$BASE.log"
+ if [[ "$2" != "" ]]; then LOG="$LOG.$2"; fi
+ valgrind --tool=memcheck --leak-check=no --show-reachable=no $VGSUPP --num-callers=50 --track-fds=no cmsRun  $CFG 2>&1 | tee memcheck-$LOG
+}
+
+function igm {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -t cmsRun -mp -z -o igmem-$BASE.out.gz.$POSTFIX cmsRun $* 2>&1 | tee igmem-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r MEM_TOTAL -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.mem-tot.sqlite.$POSTFIX
+ echo "Dump saved in igmem-$BASE.out.gz.$POSTFIX. SQLite file for MEM_TOTAL saved in igmem-$BASE.mem-tot.sqlite.$POSTFIX" 1>&2; 
+}
+function igml {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -t cmsRun -mp -z -o igmem-$BASE.out.gz.$POSTFIX cmsRun $CFG 2>&1 | tee igmem-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r MEM_TOTAL -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.memtot.sqlite.$POSTFIX
+ echo "Dump saved in igmem-$BASE.out.gz.$POSTFIX. SQLite file for MEM_TOTAL saved in igmem-$BASE.memtot.sqlite.$POSTFIX" 1>&2; 
+ igprof-analyse -g -d -v -p -r MEM_LIVE -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.memlive.sqlite.$POSTFIX
+ echo "Dump saved in igmem-$BASE.out.gz.$POSTFIX. SQLite file for MEM_LIVE saved in igmem-$BASE.memlive.sqlite.$POSTFIX" 1>&2; 
+ echo "Open with igprof-navigator."   
+}
+function igml-ex {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ if [[ $(expr match $CFG "\.") == 1 ]]; then
+    POSTFIX=$1;
+    shift;
+    CFG=$1;
+ fi;
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -t $CFG -mp -z -o igmem-$BASE.out.gz.$POSTFIX $* 2>&1 | tee igmem-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r MEM_TOTAL -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.memtot.sqlite.$POSTFIX
+ echo "Dump saved in igmem-$BASE.out.gz.$POSTFIX. SQLite file for MEM_TOTAL saved in igmem-$BASE.memtot.sqlite.$POSTFIX" 1>&2; 
+ igprof-analyse -g -d -v -p -r MEM_LIVE -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.memlive.sqlite.$POSTFIX
+ echo "Dump saved in igmem-$BASE.out.gz.$POSTFIX. SQLite file for MEM_LIVE saved in igmem-$BASE.memlive.sqlite.$POSTFIX" 1>&2; 
+}
+function igml-ana {
+ IN=$1
+ OUT=$2; if [[ "$2" == "" ]]; then OUT="${1/.gz/}"; fi;
+ igprof-analyse -g -d -v -p -r MEM_TOTAL -s $IN | sqlite3 $OUT.memtot.sqlite
+ echo "SQLite file for MEM_TOTAL saved in  $OUT.memtot.sqlite" 1>&2; 
+ igprof-analyse -g -d -v -p -r MEM_LIVE -s $IN | sqlite3 $OUT.memlive.sqlite
+ echo "SQLite file for MEM_LIVE saved in $OUT.memlive.sqlite" 1>&2; 
+} 
+
+
+
+function igp {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -t cmsRun -pp -pk -z -o igperf-$BASE.out.gz.$POSTFIX cmsRun $CFG 2>&1 | tee igperf-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r PERF_TICKS -s igperf-$BASE.out.gz.$POSTFIX | sqlite3 igperf-$BASE.sqlite.$POSTFIX
+ echo "Dump saved in igperf-$BASE.out.gz.$POSTFIX. SQLite file for PERF_TICKS saved in igperf-$BASE.sqlite.$POSTFIX" 1>&2; 
+}
+
+function igpa {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -t cmsRun -pp -z -o igperf-$BASE.out.gz.$POSTFIX cmsRun $* 2>&1 | tee igperf-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r PERF_TICKS -s igperf-$BASE.out.gz.$POSTFIX | sqlite3 igperf-$BASE.sqlite.$POSTFIX
+ echo "Dump saved in igperf-$BASE.out.gz.$POSTFIX. SQLite file for PERF_TICKS saved in igperf-$BASE.sqlite.$POSTFIX" 1>&2; 
+}
+
+
+
+function igp-ex {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ if [[ $(expr match $CFG "\.") == 1 ]]; then
+    POSTFIX=$1; POSTFIX=${POSTFIX:1};
+    shift;
+    CFG=$1;
+ fi;
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -t $CFG -pp -z -o igperf-$BASE.out.gz.$POSTFIX $* 2>&1 | tee igperf-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r PERF_TICKS -s igperf-$BASE.out.gz.$POSTFIX | sqlite3 igperf-$BASE.sqlite.$POSTFIX
+ echo "Dump saved in igperf-$BASE.out.gz.$POSTFIX. SQLite file for PERF_TICKS saved in igperf-$BASE.sqlite.$POSTFIX" 1>&2; 
+}
+
+function igpa-ex {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ if [[ $(expr match $CFG "\.") == 1 ]]; then
+    POSTFIX=$1;
+    shift;
+    CFG=$1;
+ fi;
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -pp -z -o igperf-$BASE.out.gz.$POSTFIX $* 2>&1 | tee igperf-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r PERF_TICKS -s igperf-$BASE.out.gz.$POSTFIX | sqlite3 igperf-$BASE.sqlite.$POSTFIX
+ echo "Dump saved in igperf-$BASE.out.gz.$POSTFIX. SQLite file for PERF_TICKS saved in igperf-$BASE.sqlite.$POSTFIX" 1>&2; 
+}
+
+function igpNew-ex {
+ export PATH=/afs/cern.ch/user/g/gpetrucc/scratch0/spqptf/igprof-5.7.0/bin:$PATH
+ export LD_LIBRARY_PATH=/afs/cern.ch/user/g/gpetrucc/scratch0/spqptf/igprof-5.7.0/lib:${LD_LIBRARY_PATH}
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ igprof -d -t $CFG -pp -z -o igperf-$BASE.out.gz.$POSTFIX $* 2>&1 | tee igperf-$BASE.log.$POSTFIX
+ igprof-analyse -g -d -v -p -r PERF_TICKS -s igperf-$BASE.out.gz.$POSTFIX | sqlite3 igperf-$BASE.sqlite.$POSTFIX
+ echo "Dump saved in igperf-$BASE.out.gz.$POSTFIX. SQLite file for PERF_TICKS saved in igperf-$BASE.sqlite.$POSTFIX" 1>&2; 
+}
+
+
+function vgM {
+ CFG=$1
+ POSTFIX=$2
+ POSTFIX=${POSTFIX:-tmp}
+ BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ export OUT=massif-$BASE.out.$POSTFIX
+ valgrind --tool=massif --depth=10 --threshold=0.1 --max-snapshots=100 --detailed-freq=1 --massif-out-file=$OUT cmsRun $CFG 2>&1 | tee massif-$BASE.log.$POSTFIX
+}
+function igt {
+    CFG=$1
+    POSTFIX=$2
+    POSTFIX=${POSTFIX:-tmp}
+    BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+    igtrace -tt -D -r  edmplugin::PluginCapabilities -r castor -r python -r coral cmsRun $CFG 2>&1 | tee igtrace-$BASE.log.$POSTFIX
+}
+function igt-ex {
+    CFG=$1
+    POSTFIX=$2
+    POSTFIX=${POSTFIX:-tmp}
+    BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+    igtrace -tt -D -r  edmplugin::PluginCapabilities -r castor -r python -r coral $* 2>&1 | tee igtrace-$BASE.log.$POSTFIX
+}
+
+function pfmsum {
+    grep cmsRun $* | sed "s^$(which cmsRun)\s\+([0-9]*,[0-9]*,[0-9]*)^^g" | awk '{print $3"\t"$2"\t"$1}' | sort -n --key=2 | sort --stable --key=1,1
+}

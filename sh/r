@@ -1,0 +1,104 @@
+#!/bin/bash
+
+function r {
+ CFG=$1
+ BASE=$(basename $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+ LOG="$BASE.log"
+ if [[ "$2" != "" ]]; then LOG="$LOG.$2"; fi
+ if [[ "${CFG%%.py}.py" == "$CFG" ]]; then
+    if python $CFG  > $LOG 2>&1; then
+        if [[ "$HOSTNAME" == "pcmssd12" ]]; then
+            ionice -c2 -n7 cmsRun $CFG 2>&1 | tee $LOG;
+        else
+            cmsRun $CFG 2>&1 | tee $LOG;
+        fi;
+        ~/sh/report $LOG;
+    else
+        cat $LOG
+    fi;
+ else
+     if [[ "$HOSTNAME" == "pcmssd12" ]]; then
+         ionice -c2 -n7 cmsRun $CFG 2>&1 | tee $LOG;
+     else
+         cmsRun $CFG 2>&1 | tee $LOG;
+     fi;
+     ~/sh/report $LOG;
+ fi;
+}
+
+function ra {
+ ~/sh/ra $*
+}
+
+function ral {
+ ~/sh/ral $*
+}
+
+
+function expy {
+     CFG=$1
+     if [[ "$2" != "" ]] && [[ "${2}" == "${2/.py/}.py" ]]; then
+         echo "x = open('$2','w'); x.write(process.dumpPython()); x.close()" | python -i $* 
+         echo "Cfg $1 expanded as $2 ";
+     else
+         BASE=$(basename $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+         echo "print process.dumpPython()" | python -i $* > ${BASE}_expanded.py
+         echo "Cfg $1 expanded as ${BASE}_expanded.py ";
+     fi;
+}
+unalias lc 2> /dev/null
+function lc {
+    if [[ "$1" == "" ]]; then 
+        "echo lc json [path] => lumiCalc.py -c frontier://LumiProd/CMS_LUMI_PROD -i json [ -hltpath path ] recorded";
+    else
+        if [[ "$2" == "" ]]; then
+            lumiCalc.py -c frontier://LumiProd/CMS_LUMI_PROD -i $1 recorded;
+        else
+            lumiCalc.py -c frontier://LumiProd/CMS_LUMI_PROD -i $1 -hltpath $2 recorded;
+        fi;
+    fi;
+}
+function lcsum {
+    perl -MData::Dumper -e '%t = (); while (<>){ m/(HLT_\w+)\s\|\s*([0-9]\S+)/ and $t{$1} += $2/1e6; } print Dumper(\%t);'
+}
+
+function eosls {    
+    HOST="eoscms"; PREFIX="/eos/cms"
+    if [[ "$1" == "--pcsd" ]]; then HOST=pcmssd12; PREFIX=""; shift; fi;
+    RPT="/store/caf/user/gpetrucc/"
+    if [[ "$1" == "" ]]; then 
+        xrd $HOST dirlist $PREFIX$RPT$1
+    else while [[ "$1" != "" ]]; do
+        RPT="/store/caf/user/gpetrucc/"
+        MYPREFIX=$PREFIX
+        if [[ "$1" != "" ]] && expr $1 : "/store/.*" > /dev/null; then RPT=""; fi;
+        if [[ "$1" != "" ]] && expr $1 : "$PREFIX/store/.*" > /dev/null; then RPT=""; MYPREFIX=""; fi;
+        xrd $HOST dirlist $MYPREFIX$RPT$1
+        shift;
+    done; fi;
+}
+function eosrm {    
+    HOST="eoscms"; PREFIX="/eos/cms"
+    if [[ "$1" == "--pcsd" ]]; then HOST=pcmssd12; PREFIX=""; shift; fi;
+    while [[ "$1" != "" ]]; do
+        RPT="/store/caf/user/gpetrucc/"
+        MYPREFIX=$PREFIX
+        if [[ "$1" != "" ]] && expr $1 : "/store/.*" > /dev/null; then RPT=""; fi;
+        if [[ "$1" != "" ]] && expr $1 : "$PREFIX/store/.*" > /dev/null; then RPT=""; MYPREFIX=""; fi;
+        echo xrd $HOST rm $MYPREFIX$RPT$1
+        shift;
+    done
+}
+function eosmv {    
+    HOST="eoscms"; PREFIX="/eos/cms"
+    if [[ "$1" == "--pcsd" ]]; then HOST=pcmssd12; PREFIX=""; shift; fi;
+    RPT1="/store/caf/user/gpetrucc/"
+    MYPREFIX1=$PREFIX
+    if [[ "$1" != "" ]] && expr $1 : "/store/.*" > /dev/null; then RPT1=""; fi;
+    if [[ "$1" != "" ]] && expr $1 : "$PREFIX/store/.*" > /dev/null; then RPT1=""; MYPREFIX1=""; fi;
+    RPT2="/store/caf/user/gpetrucc/"
+    MYPREFIX2=$PREFIX
+    if [[ "$2" != "" ]] && expr $2 : "/store/.*" > /dev/null; then RPT2=""; fi;
+    if [[ "$2" != "" ]] && expr $2 : "$PREFIX/store/.*" > /dev/null; then RPT2=""; MYPREFIX2=""; fi;
+    echo xrd $HOST mv $MYPREFIX1$RPT1$1 $MYPREFIX2$RPT2$2
+}

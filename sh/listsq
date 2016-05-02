@@ -1,0 +1,90 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Data::Dumper;
+use Getopt::Long;
+
+my $sqlite3 = ($ENV{'HOSTNAME'} =~ /lxcmsi1|pcphsft50/ ? "/usr/bin/sqlite3" : "sqlite3");
+my $file = shift(@ARGV);
+die "File $file not found" unless -f $file;
+
+my $calls = ($file =~ /mem-tot/ ? "calls" : "count");
+my $total_calls = ($calls eq "calls" ? "total_calls" : "cumulative_count");
+
+my $cmd = shift(@ARGV) or die "Usage: $0 [options] command [args]";
+
+sub execq($) {
+    my $query = shift(@_);
+    #print STDERR "[[$query]]\n";
+    return qx(echo -e ".mode tabs\n$query" | $sqlite3 $file);
+}
+sub printq($$) {
+    my $query = shift(@_);
+    my $title = shift(@_);
+    print $title . ("-" x 80) . "\n" . execq($query);
+}
+
+if ($cmd eq "shell") {
+    my $line = "";
+    my @stack = (); my $curr = 1;
+    do {
+        print STDERR ">> ";  
+        $line = <>; exit 0 unless defined($line);
+        chomp $line;
+        if ($line =~ /^(\d+)$/) {
+            push @stack, $curr; 
+            $curr = $1;
+            exec_cmd("show","$curr");
+        } elsif ($line eq "up") {
+            $curr = pop(@stack);
+            exec_cmd("show","$curr");
+        } else {
+            exec_cmd(split(/\s+/, $line));
+        }
+    } while ($line ne "quit");
+} else {
+    exec_cmd($cmd,@ARGV);
+}
+
+sub exec_cmd {
+    my $cmd = shift(@_);
+    if ($cmd eq "grep") {
+        my $arg = shift(@_) or die "Usage: $0 grep query\n"; 
+        my $query = "SELECT mainrows.id, $total_calls, self_$calls, symbols.name FROM symbols JOIN mainrows ON symbols.id IN (mainrows.symbol_id) WHERE symbols.name LIKE '\%$arg\%' ORDER BY $total_calls DESC LIMIT 50;";
+        printq($query, "ID\tTOTAL\tSELF\tSYMBOL\n");
+    } elsif ($cmd eq "top") {
+        my $query = "SELECT mainrows.id, $total_calls, self_$calls, symbols.name FROM mainrows JOIN symbols ON symbols.id IN (mainrows.symbol_id) ORDER BY $total_calls DESC LIMIT 50;";
+        printq($query, "ID\tTOTAL\tSELF\tSYMBOL\n");
+    } elsif ($cmd eq "show") {
+        my @items;
+        foreach (@_) {
+            if (m/^\d+$/) { 
+                push @items, $_; 
+            } else {
+                my @lines = execq("SELECT mainrows.id FROM mainrows JOIN symbols ON symbols.id IN (mainrows.symbol_id) WHERE symbols.name LIKE '\%$_\%';");
+                chomp @lines;
+                push @items, @lines;
+            }
+        }
+        my $count = scalar(@items) or die "Usage: $0 show id1 id2 ...\n";
+        foreach my $id (@items) {
+            if ($count > 1) { print "\n" . "="x80 . "\n"; }
+
+            my $query;
+
+            $query = "SELECT parr.id, to_child_$calls, ROUND(to_child_$calls*100.0/mainrows.$total_calls,2), '---', symbols.name FROM mainrows JOIN parents ON parents.child_id = mainrows.id JOIN mainrows AS parr ON parr.id = parents.self_id JOIN symbols ON symbols.id = parr.symbol_id WHERE mainrows.id = $id ORDER BY to_child_$calls DESC LIMIT 50;";
+            printq($query, "ID\tTOTAL\tTOT %\tSELF\tSYMBOL\n");
+
+            $query = "SELECT mainrows.id, mainrows.$total_calls, '---', mainrows.self_$calls, symbols.name FROM mainrows JOIN symbols ON symbols.id IN (mainrows.symbol_id) WHERE mainrows.id = $id ORDER BY mainrows.$total_calls DESC LIMIT 50;";
+            printq($query, "");
+
+            $query = "SELECT chr.id, from_parent_$calls, ROUND(from_parent_$calls*100.0/mainrows.$total_calls,2), '----', symbols.name FROM mainrows JOIN children ON children.parent_id = mainrows.id JOIN mainrows AS chr ON chr.id = children.self_id JOIN symbols ON symbols.id = chr.symbol_id WHERE mainrows.id = $id ORDER BY from_parent_$calls DESC LIMIT 50;";
+            printq($query, ""); #ID\tTOTAL\tTOT %\tSELF\tSYMBOL\n");
+     
+            
+        }
+    } elsif ($cmd eq "quit") {
+        exit(0);
+    }
+}

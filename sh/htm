@@ -1,0 +1,13 @@
+#!/bin/bash
+##  FILEOUT=$1
+##  if [[ "$FILEOUT" == "" ]]; then 
+##      echo "Usage: $(basename $0) outfile infiles";
+##      exit 1;
+##  fi;
+##  if test -a $FILEOUT; then
+##      echo "Error, $FILEOUT exists.";
+##      exit 2;
+##  fi;
+##  shift
+##  enscript -E --color -Whtml --toc -p$FILEOUT $*
+enscript -E --color --language=html --toc -p- $*
