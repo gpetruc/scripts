@@ -1,0 +1,2 @@
+#!/bin/bash
+exec grep -v 'INFO:Eval -- RooRealVar::setRange\|INFO:NumericIntegration -- RooRealIntegral::init' -

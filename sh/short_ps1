@@ -1,0 +1,3 @@
+#!/bin/bash
+if [[ "${CMSSW_PS1_COLOR}" == "" ]]; then export CMSSW_PS1_COLOR=32; fi
+export PS1='\[\033[01;31m\]${?/0/\[\033[01;${CMSSW_PS1_COLOR}m\]}[\W]\$\[\033[00m\] '

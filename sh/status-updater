@@ -1,0 +1,14 @@
+while true; do clear; 
+ (uptime; ~/sh/lsfstat; echo; fs listq ~ ~/w ~/scratch0 /afs/cern.ch/cms/higgs/combination/ ; echo; ~/sh/lsfstat -u cmgtools 2>&1; ~/sh/my-eos-quota ) | tee ~/public_html/status.txt ; 
+ # MiniAOD list
+ test -f refresh-miniAODlist && . refresh-miniAODlist; 
+ ## Detox monitoring
+ #DETOX=detox/$( date "+detox-T2_CH_CERN-%Y_%m_%d" );
+ #wget -N http://t3serv001.mit.edu/~cmsprod/IntelROCCS/Detox/result/T2_CH_CERN/RemainingDatasets.txt
+ #cat RemainingDatasets.txt | gzip > $DETOX
+ #python ~/py/listDetox.py RemainingDatasets.txt  /*/RunIISpring15*/MINIAODSIM > ~/public_html/drop/Detox-RunIISpring15-MINIAODSIM.html
+ #python ~/py/listDetox.py RemainingDatasets.txt  /*/Run2015*/MINIAOD > ~/public_html/drop/Detox-Run2015-MINIAOD.html
+ # Sleep
+ echo sleep; sleep 5m || break; 
+done
+#while true; do clear; (uptime; ~/sh/lsfstat; echo; fs listq ~ ~/w ~/scratch0 /afs/cern.ch/cms/higgs/combination/ ; echo; ~/sh/lsfstat -u cmgtools 2>&1; ~/sh/my-eos-quota ) | tee ~/public_html/status.txt ;  sleep 5m; done

@@ -1,0 +1,26 @@
+#!/bin/bash
+export MYDIR=$PWD
+export CMSSWDIR=$1
+shift
+export SCRAM_ARCH=$1
+shift
+export HOMEDIR=$1
+shift
+LOG="$MYDIR/combine.log.${LSB_JOBID}"
+cd $CMSSWDIR;
+eval $(scramv1 runtime -sh)
+cd $HOMEDIR;
+ulimit -s unlimited
+#ulimit -m unlimited
+ulimit -c 0
+#ulimit -v unlimited
+ulimit -a
+echo "## Home  dir: $HOMEDIR"  >  $LOG
+echo "## CMSSW dir: $CMSSWDIR" >> $LOG
+echo "## SCRAM_ARCH dir: $SCRAM_ARCH" >> $LOG
+ulimit -a | sed 's/^/##  /' >> $LOG
+echo "## Executing combine $*"  >> $LOG
+echo "## Starting at $(date)"  >> $LOG
+/usr/bin/time -v combine $* 2>&1 | tee -a $LOG > /dev/null
+echo "## Done at $(date)" >> $LOG
+head -c 4000000 $LOG | gzip > $HOMEDIR/combine.log.${LSB_JOBID}.gz

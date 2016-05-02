@@ -1,0 +1,39 @@
+#!/usr/bin/env perl
+use strict; use warnings;
+my $kind = shift(@ARGV);
+my $last = 0;
+if (defined($kind) && ($kind eq "-l")) { $last = 1;  $kind = shift(@ARGV); }
+my $match    = defined($kind) ? qr{^---- ($kind) BEGIN$} : qr{^---- (.*) BEGIN$};
+my $matchNew = defined($kind) ? qr{^----- Begin ($kind)} : qr{^----- Begin (.*)\s+\d\d-...-\d\d\d\d};
+my $p=0;
+
+my $txt = "";
+while (<>) {
+    if (m/$match/) {
+        if ($p) {
+            last if $last == 0; # useless to go further
+            $p = 0; 
+            $match = defined($kind) ? qr{^---- ($kind) BEGIN$} : qr{^---- (.*) BEGIN$};
+            next;
+        }
+        last if $p and not $last;
+        $txt = defined($kind) ? "=== EXCEPTION: $1 ===\n" : "";
+        my $mkind = $1; $match =  qr{^---- ($mkind) END$};
+        $p=1;
+    } elsif (m/$matchNew/) {
+        print "Matched new: [$1]\n";
+        if ($p) {
+            last if $last == 0; # useless to go further
+            $p = 0; 
+            $match = defined($kind) ? qr{^----- Begin ($kind)$} : qr{^----- Begin (.*)\s+\d\d-...-\d\d\d\d$};
+            next;
+        }
+        last if $p and not $last;
+        $txt = defined($kind) ? "=== EXCEPTION: $1 ===\n" : "";
+        my $mkind = $1; $match =  qr{^----- End ($mkind) -----};
+        $p=1;
+    } else {
+        if ($p) { $txt .= "    ".$_ }
+    }
+}
+print $txt;

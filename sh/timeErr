@@ -1,0 +1,13 @@
+#!/usr/bin/env perl
+use Date::Parse;
+
+my $start = 0, $end = 0;
+while (<>) {
+    if (m/at\s+(\d\d-[A-Z][a-z][a-z]-20\d\d\s+[012]\d:\d\d:\d\d)(?:\.\d+)?\s+([A-Z][A-Z][A-Z]+)/) {
+        my $t = str2time($1);
+        if (($start == 0) || ($t < $start)) { $start = $t; }
+        if (($end   == 0) || ($t > $end  )) { $end   = $t; }
+    }
+}
+my $time = $end - $start;
+print sprintf("Total time: \%d s = \%.1f m = \%.2f h\n", $time, $time/60.0, $time/3600.0);

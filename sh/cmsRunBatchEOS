@@ -1,0 +1,31 @@
+#!/bin/bash
+export MYDIR=$PWD
+export HOMEDIR=$1
+shift
+export EOSDIR=$1
+shift
+export CFGFILE=$1
+BASE=$(echo $CFGFILE | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+LOG="$BASE.log.${LSB_JOBID}"
+cd $HOMEDIR;
+echo "## Home dir: $HOMEDIR"  > $LOG
+echo "## Executing cmsRun $*" >> $LOG
+echo "## Starting at $(date)" >> $LOG
+eval $(scramv1 runtime -sh)
+echo "## Done environment at $(date)" >> $LOG
+cd $MYDIR
+cp -s $HOMEDIR/* .
+cmsRun $* >> $HOMEDIR/$LOG 2>&1
+for f in *.root; do
+    if test -h $f; then
+        echo "$f is a symlink, will not copy"
+    elif test -f $f; then
+        xrdcp -f $f root://eoscms/$EOSDIR/$f    
+        if $eos ls $EOSDIR/$f; then
+            echo "Successfully copied to $EOSDIR"
+        else
+            echo "Making a second attempt"
+            xrdcp -f $f root://eoscms/$EOSDIR/$f    
+        fi
+    fi;
+done

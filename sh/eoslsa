@@ -1,0 +1,3 @@
+#!/bin/bash
+eos=/afs/cern.ch/project/eos/installation/0.3.84-aquamarine/bin/eos.select
+for D in $*; do $eos ls $D | sed "s#^#$D/#"; done

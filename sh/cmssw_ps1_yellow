@@ -1,0 +1,3 @@
+export CMSSW_PS1_COLOR=33
+export PS1='\[\033[01;31m\]${?/0/\[\033[01;${CMSSW_PS1_COLOR}m\]}[${PWD##$CMSSW_BASE/src}]\$\[\033[00m\] '
+hostname | grep -q fnal && echo "$PS1" | grep -q -v LPC && export PS1="\[\033[01;31m\]LPC $PS1"

@@ -1,0 +1,14 @@
+#!/bin/bash
+export MYDIR=$PWD
+export HOMEDIR=$1
+shift
+export CFGFILE=$1
+BASE=$(echo $CFGFILE | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
+LOG="$BASE.log.${LSB_JOBID}"
+cd $HOMEDIR;
+echo "## Home dir: $HOMEDIR"  > $LOG
+echo "## Executing cmsRun $*" >> $LOG
+echo "## Starting at $(date)" >> $LOG
+eval $(scramv1 runtime -sh)
+echo "## Done environment at $(date)" >> $LOG
+cmsRun $* >> $LOG 2>&1
