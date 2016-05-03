@@ -9,7 +9,7 @@ use Cwd;
 
 my $verbose = 1; my $label = ''; 
 my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json);
-my ($bash,$lsf,$help,$byrun);
+my ($bash,$lsf,$help,$byrun,$bysize);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
 my $maxsyncjobs = 99;
@@ -30,6 +30,7 @@ GetOptions(
     'verbose|debug+'=>\$verbose,
     'bash'=>\$bash,
     'byrun'=>\$byrun,
+    'bysize'=>\$bysize,
     'monitor-script=s'=>\$monitor,
     'report-script=s'=>\$report,
     'lsf=s'=>\$lsf,
@@ -354,6 +355,66 @@ if ($byrun) {
     }
     $splits = \@alljobs;
     $jobs = scalar(@alljobs);
+} elsif ($bysize) {
+    die "--bysize makes no sense if making just one job\n" if ($jobs == 1);
+    my %file2size = ();
+    foreach my $f (@files) {
+        # skip if we already know the size
+        next if defined $file2size{$f};
+        # it's an eos file
+        if ($f =~ m{^(/eos/cms)?/store/.*.root}) {
+            my $dir = dirname($f);
+            my @eosls = qx{/afs/cern.ch/project/eos/installation/cms/bin/eos.select ls -l $dir};
+            foreach (@eosls) {
+                my (undef,undef,undef,undef,$size,undef,undef,undef,$base) = split(/\s+/) or next;
+                $file2size{"$dir/$base"} = $size;
+            }
+        } elsif ($f =~ m{^(?:file:)?(.+\.root)}) {
+            my $dir = dirname($f);
+            if ($dir) {
+                my @ls = qx{ls -l $dir};
+                foreach (@ls) {
+                    my (undef,undef,undef,undef,$size,undef,undef,undef,$base) = split(/\s+/) or next;
+                    $file2size{"$dir/$base"} = $size;
+                }
+            } else {
+                my @ls = qx{ls -l $f};
+                foreach (@ls) {
+                    my (undef,undef,undef,undef,$size,undef,undef,undef,$f2) = split(/\s+/) or next;
+                    $file2size{$f2} = $size;
+                }
+            }
+        } else {
+            die "Not supported yet\n";
+        }
+    }
+    my $tot = 0; 
+    foreach my $f (@files) {
+        die "Could not find size for file $f " unless $file2size{$f};
+        $tot += $file2size{$f};
+    }
+    printf ("Total size: %.3f Mb, approximate size per job %.3f Mb \n", $tot/1024.0/1024.0, $tot/1024.0/124.0/$jobs);
+    my @fsorted = sort { $file2size{$b} cmp $file2size{$a} } @files;
+    my %taken = ();
+    my $cut = $tot / $jobs;
+    my @alljobs = ();
+    while (scalar(keys(%taken)) < scalar(@files)) {
+        my $subtot = 0;
+        my @jobfiles = ();
+        foreach my $f (@fsorted) {
+            next if $taken{$f};
+            if ($subtot == 0 or $subtot + $file2size{$f} < $cut) {
+                push @jobfiles, $f; $taken{$f} = 1;
+                $subtot += $file2size{$f};
+            }
+        }
+        push @alljobs, [ @jobfiles ];
+        printf ("Job %d, %d files, %.3f Mb\n", scalar(@alljobs), scalar(@jobfiles), $subtot/1024.0/124.0); 
+    }
+    #print Dumper(\@alljobs);
+    $splits = \@alljobs;
+    $jobs = scalar(@alljobs);
+    #die "Fin qui tutto bene\n";
 } else {
     $splits = ($triangular ? split_triang() : split_even());
 }
