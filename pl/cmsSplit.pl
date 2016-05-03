@@ -148,8 +148,13 @@ class EPVisitor:
 
 epv = EPVisitor()
 
-for ep in [V for N,V in $THEPROCESS.endpaths_().items()]:
-    ep.visit(epv)
+if hasattr(process,"schedule"):
+    for p in process.schedule:
+        if type(p) == cms.EndPath:
+            p.visit(epv)
+else:
+    for ep in [V for N,V in $THEPROCESS.endpaths_().items()]:
+       ep.visit(epv)
 
 ## TFileService
 if hasattr(process,"TFileService") and type($THEPROCESS.TFileService) == cms.Service: 
@@ -369,19 +374,20 @@ if ($byrun) {
                 my (undef,undef,undef,undef,$size,undef,undef,undef,$base) = split(/\s+/) or next;
                 $file2size{"$dir/$base"} = $size;
             }
-        } elsif ($f =~ m{^(?:file:)?(.+\.root)}) {
-            my $dir = dirname($f);
+        } elsif ($f =~ m{^((?:file:)?)(.+\.root)$}) {
+            my $dir = dirname($2);
             if ($dir) {
                 my @ls = qx{ls -l $dir};
                 foreach (@ls) {
-                    my (undef,undef,undef,undef,$size,undef,undef,undef,$base) = split(/\s+/) or next;
-                    $file2size{"$dir/$base"} = $size;
+                    m/^total\s+\d+/ and next;
+                    my (undef,undef,undef,undef,$size,undef,undef,undef,$base) = split(/\s+/) or print;
+                    $file2size{"$1$dir/$base"} = $size;
                 }
             } else {
-                my @ls = qx{ls -l $f};
+                my @ls = qx{ls -l $2};
                 foreach (@ls) {
                     my (undef,undef,undef,undef,$size,undef,undef,undef,$f2) = split(/\s+/) or next;
-                    $file2size{$f2} = $size;
+                    $file2size{"$1$f2"} = $size;
                 }
             }
         } else {
@@ -393,7 +399,7 @@ if ($byrun) {
         die "Could not find size for file $f " unless $file2size{$f};
         $tot += $file2size{$f};
     }
-    printf ("Total size: %.3f Mb, approximate size per job %.3f Mb \n", $tot/1024.0/1024.0, $tot/1024.0/124.0/$jobs);
+    printf ("Total size: %.3f Mb, approximate size per job %.3f Mb \n", $tot/1024.0/1024.0, $tot/1024.0/1024.0/$jobs);
     my @fsorted = sort { $file2size{$b} cmp $file2size{$a} } @files;
     my %taken = ();
     my $cut = $tot / $jobs;
@@ -409,7 +415,7 @@ if ($byrun) {
             }
         }
         push @alljobs, [ @jobfiles ];
-        printf ("Job %d, %d files, %.3f Mb\n", scalar(@alljobs), scalar(@jobfiles), $subtot/1024.0/124.0); 
+        printf ("Job %d, %d files, %.3f Mb\n", scalar(@alljobs), scalar(@jobfiles), $subtot/1024.0/1024.0); 
     }
     #print Dumper(\@alljobs);
     $splits = \@alljobs;
