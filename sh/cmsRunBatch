@@ -11,4 +11,5 @@ echo "## Executing cmsRun $*" >> $LOG
 echo "## Starting at $(date)" >> $LOG
 eval $(scramv1 runtime -sh)
 echo "## Done environment at $(date)" >> $LOG
+ulimit -c 0
 cmsRun $* >> $LOG 2>&1
