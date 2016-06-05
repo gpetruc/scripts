@@ -148,7 +148,7 @@ class EPVisitor:
 
 epv = EPVisitor()
 
-if hasattr(process,"schedule"):
+if getattr(process,"schedule",None):
     for p in process.schedule:
         if type(p) == cms.EndPath:
             p.visit(epv)
