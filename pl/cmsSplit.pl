@@ -211,10 +211,10 @@ if (defined($dbsql)) {
         $stglob =~ s/\?/./;   # regex to 
         $stglob =~ s/\*/.*/;  # a glob.
         @files = ();
-        foreach my $line (qx(cmsLs $stdir)) {
-            my ($thisfile) = ($line =~ m/($stdir\S+\.root)/) or next;
+        foreach my $line (qx(/afs/cern.ch/project/eos/installation/cms/bin/eos.select ls $stdir)) {
+            my ($thisfile) = ($line =~ m/(\S+\.root)/) or next;
             if (basename($thisfile) =~ m{$stglob}) {
-                push @files, $thisfile;
+                push @files, "$stdir/$thisfile";
             }
         }
     } else {
