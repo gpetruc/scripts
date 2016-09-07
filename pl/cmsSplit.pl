@@ -8,7 +8,7 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json,$fnal,$AAA);
 my ($bash,$lsf,$help,$byrun,$bysize);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
@@ -41,7 +41,9 @@ GetOptions(
     'help|h|?'=>\$help,
     'customize|c=s'=>\$customize,
     'maxfiles=i'=>\$maxfiles,
-    'subprocess=i'=>\$subprocesses
+    'subprocess=i'=>\$subprocesses,
+    'fnal'=>\$fnal,
+    'AAA'=>\$AAA
 );
 
 sub usage() {
@@ -100,6 +102,8 @@ options:
   --report-script:  to be used with "--bash", changes the command used to make a final report of logfiles (default is "grep 'Events total'")
   --customize: append specified python fragment to the cfg
   --subprocess N: assume the subprocess of order N is the one doing the real output. Only N=0 (no subprocess) or N=1 are supported now.
+  --fnal: use fnal xrootd redirector
+  --AAA:  use cern global xrootd redirector
 EOF
 }
 
@@ -223,6 +227,13 @@ if (defined($dbsql)) {
     }
 }
 chomp @files;
+if ($AAA) {
+    print "Using cms-xrd-global.cern.ch redirector\n" if $verbose;
+    foreach (@files) { s{^/store/}{root://cms-xrd-global.cern.ch//store/}; }
+} elsif ($fnal) {
+    print "Using cmsxrootd.fnal.gov redirector\n" if $verbose;
+    foreach (@files) { s{^/store/}{root://cmsxrootd.fnal.gov//store/}; }
+}
 if (defined($maxfiles) and (scalar(@files) > $maxfiles)) {
     @files = @files[0 .. ($maxfiles-1)];
 }
