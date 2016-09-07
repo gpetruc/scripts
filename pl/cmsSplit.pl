@@ -8,7 +8,7 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json,$fnal,$AAA);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json,$fnal,$AAA,$addparents);
 my ($bash,$lsf,$help,$byrun,$bysize);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
@@ -43,7 +43,8 @@ GetOptions(
     'maxfiles=i'=>\$maxfiles,
     'subprocess=i'=>\$subprocesses,
     'fnal'=>\$fnal,
-    'AAA'=>\$AAA
+    'AAA'=>\$AAA,
+    'add-parents'=>\$addparents
 );
 
 sub usage() {
@@ -452,16 +453,35 @@ if ($json) {
 foreach my $j (1 .. $jobs) {
     my $pyfile = $basename . $label . "_job$j.py";
     print "Will create job $j, source $pyfile\n" if $verbose;
-    my $postamble = "";
+    my $postamble = ""; my @myfiles = ();
     if (defined($evjob)) {
-        my $inputfiles = join('', map("\t'$_',\n", @files));
+        @myfiles = @files;
+        my $inputfiles = join('', map("\t'$_',\n", @myfiles));
         $postamble .= "process.source.fileNames = [\n$inputfiles]\n";
         $postamble .= "process.source.skipEvents = cms.untracked.uint32(".(($j-1)*$evjob).")\n";
         $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32($evjob))\n";
     } else {
-        my $inputfiles = join('', map("\t'$_',\n", @{$splits->[$j-1]}));
+        @myfiles = @{$splits->[$j-1]};
+        my $inputfiles = join('', map("\t'$_',\n", @myfiles));
         $postamble .= "process.source.fileNames = [\n$inputfiles]\n";
         $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32(-1))\n";
+    }
+    if ($addparents) {
+        my %parents = ();
+        print " querying parents for all ".scalar(@myfiles)." files in job - this can take some time.\n" if $verbose;
+        foreach my $child (@myfiles) {
+            die "--add-parents works only if the files are lfns " unless $child =~ m{^/store/.*root};
+            my @myparents = grep(m/\/store.*.root/, qx(das_client.py --limit 10000 --query='parent file=$child'));
+            chomp @myparents;
+            print STDERR "ERROR, no parents found for $child" unless @myparents;
+            foreach my $parent (@myparents) {
+                $parents{$parent} = 1;
+            }
+        }
+        print " found ".scalar(keys(%parents))." parent files\n" if $verbose;
+        my $parentfiles = join('', map("\t'$_',\n", keys(%parents)));
+        $postamble .= "process.source.secondaryFileNames = cms.untracked.vstring()\n";
+        $postamble .= "process.source.secondaryFileNames = [\n$parentfiles]\n";
     }
     foreach (@outputModules) {
         my ($n,$f) = @$_;
