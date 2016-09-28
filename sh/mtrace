@@ -1,7 +1,7 @@
 #!/bin/bash
 PID=$1
 DELTA=$2;
-if [[ "$DELTA" == "" ]]; then DELTA=10; fi;
+if [[ "$DELTA" == "" ]]; then DELTA=2; fi;
 while /bin/sleep $DELTA; do 
     test -d /proc/$PID || exit;
     echo "$(date '+%s') $(awk '{print $23/1024}' /proc/$PID/stat)"; 

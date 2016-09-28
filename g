@@ -55,7 +55,7 @@ function crabwhich {
         grep -H datasetpath crab_0_*/share/crab.cfg
     fi;
 }
-alias psc="ps x | grep 'cmsRun\|combine' | grep -v grep"
+alias psc="ps x | grep 'cmsRun\|combine\|tmp_heppy.py' | grep -v grep"
 . /afs/cern.ch/project/eos/installation/cms/etc/setup.sh
 function dasql {
    q="$1"; shift;
@@ -66,3 +66,5 @@ function dasql {
 if git --exec-path | grep -q 1.8.3.1-odfocd2; then
     alias git='git --exec-path=/cvmfs/cms.cern.ch/slc6_amd64_gcc491/external/git/1.8.3.1-odfocd/libexec/git-core/'
 fi;
+
+export X509_USER_PROXY=/afs/cern.ch/user/g/gpetrucc/priv/proxy
