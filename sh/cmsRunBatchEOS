@@ -8,24 +8,29 @@ export CFGFILE=$1
 BASE=$(echo $CFGFILE | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
 LOG="$BASE.log.${LSB_JOBID}"
 cd $HOMEDIR;
+eval $(scramv1 runtime -sh)
+cd $MYDIR
 echo "## Home dir: $HOMEDIR"  > $LOG
+echo "## Work dir: $MYDIR"    >> $LOG
 echo "## Executing cmsRun $*" >> $LOG
 echo "## Starting at $(date)" >> $LOG
-eval $(scramv1 runtime -sh)
-echo "## Done environment at $(date)" >> $LOG
-cd $MYDIR
 cp -s $HOMEDIR/* .
-cmsRun $* >> $HOMEDIR/$LOG 2>&1
+cmsRun $* >> $LOG 2>&1
 for f in *.root; do
     if test -h $f; then
-        echo "$f is a symlink, will not copy"
+        echo "$f is a symlink, will not copy"     2>&1 | tee -a $LOG
     elif test -f $f; then
-        xrdcp -f $f root://eoscms/$EOSDIR/$f    
+        xrdcp -f $f root://eoscms/$EOSDIR/$f      2>&1 | tee -a $LOG
         if $eos ls $EOSDIR/$f; then
-            echo "Successfully copied to $EOSDIR"
+            echo "Successfully copied to $EOSDIR" 2>&1 | tee -a $LOG
         else
-            echo "Making a second attempt"
-            xrdcp -f $f root://eoscms/$EOSDIR/$f    
+            echo "Making a second attempt"        2>&1 | tee -a $LOG
+            xrdcp -f $f root://eoscms/$EOSDIR/$f  2>&1 | tee -a $LOG  
         fi
     fi;
 done
+if (( $(stat -c "%s" $LOG) < 12400 )); then
+    cp $LOG $HOMEDIR/
+else
+    gzip $LOG && cp ${LOG}.gz $HOMEDIR/
+fi;
