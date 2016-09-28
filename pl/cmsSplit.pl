@@ -8,12 +8,13 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json,$fnal,$AAA,$addparents);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json,$fnal,$AAA,$addparents,$randomize);
 my ($bash,$lsf,$help,$byrun,$bysize);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
 my $maxsyncjobs = 99;
 my $subprocesses = 0;
+my $firstlumiblock = 1;
 my @job2run;
 
 GetOptions(
@@ -44,7 +45,9 @@ GetOptions(
     'subprocess=i'=>\$subprocesses,
     'fnal'=>\$fnal,
     'AAA'=>\$AAA,
-    'add-parents'=>\$addparents
+    'add-parents'=>\$addparents,
+    'randomize'=>\$randomize,
+    'first-lumi-block|flb=i'=>\$firstlumiblock
 );
 
 sub usage() {
@@ -457,8 +460,11 @@ foreach my $j (1 .. $jobs) {
     if (defined($evjob)) {
         @myfiles = @files;
         my $inputfiles = join('', map("\t'$_',\n", @myfiles));
-        $postamble .= "process.source.fileNames = [\n$inputfiles]\n";
-        $postamble .= "process.source.skipEvents = cms.untracked.uint32(".(($j-1)*$evjob).")\n";
+        $postamble .= "process.source.fileNames = [\n$inputfiles]\n" if (@files);
+        $postamble .= "if process.source.type_() != 'EmptySource':\n";
+        $postamble .= "    process.source.skipEvents = cms.untracked.uint32(".(($j-1)*$evjob).")\n";
+        $postamble .= "else:\n";
+        $postamble .= "    process.source.firstLuminosityBlock = cms.untracked.uint32(".($j +  $firstlumiblock).")\n";
         $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32($evjob))\n";
     } else {
         @myfiles = @{$splits->[$j-1]};
@@ -503,6 +509,13 @@ foreach my $j (1 .. $jobs) {
     } elsif ($byrun) {
         my $run = $job2run[$j-1];
         $postamble .= "process.source.lumisToProcess = cms.untracked.VLuminosityBlockRange('$run:1-$run:9999999',)\n";
+    }
+    if ($randomize) {
+        $postamble .= "## Scramble\n";
+        $postamble .= "import random\n";
+        $postamble .= "rnd = random.SystemRandom()\n";
+        $postamble .= "for X in process.RandomNumberGeneratorService.parameterNames_():\n";
+        $postamble .= "   if X != 'saveFileName': getattr(process.RandomNumberGeneratorService,X).initialSeed = rnd.randint(1,99999999)\n";
     }
     print " and will append postamble\n$postamble\n" if $verbose > 1;
     my $text = $src . "\n### ADDED BY cmsSplit.pl ###\n" . $postamble;
