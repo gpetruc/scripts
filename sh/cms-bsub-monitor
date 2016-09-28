@@ -1,0 +1,2 @@
+watch -n 60 "bjobs -ww | grep cmsRunBatch | sed -e 's/^\([0-9]*\) gpetrucc \(\S\+\s\+\S\+\).*cmsRunBatch/\1 \2/' | sed 's+$src+\$src+g'; 
+             bjobs -w | grep 'A[0-9]\+/\|.*\.sh' | perl -npe 's/afs.*\W(\w+\.sh)/\$1/; s+$src/++g'"
