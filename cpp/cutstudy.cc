@@ -3,11 +3,11 @@ TString scut = "1";
 TString bcut = "1";
 TTree   *stree = 0, *btree = 0;
 Long64_t nMax = 999999999;
-const int nrocs = 5, nwps = 10;
+const int nrocs = 20, nwps = 10;
 TGraph *rocs[nrocs]; TString lrocs[nrocs];
 TGraph *wps[nwps]; TString lwps[nwps];
-TH1    *frame = new TH1F("frame","frame;eff(background);eff(signal)",1000,0,1);
-TLegend *legend = new TLegend(.5,.5,.8,.2);
+TH1    *frame = new TH1F("frame","frame;eff(background);eff(signal)",100000,0,1);
+TLegend *legend = new TLegend(.65,.6,.92,.15);
 
 void reset() {
     for (int i = 0; i < nrocs; ++i) rocs[i] = 0;
@@ -288,4 +288,20 @@ void newWP(int iwp, TString expr, TString label, int color, float size=1.2, int 
     wps[iwp]->SetMarkerSize(size);
     wps[iwp]->SetMarkerStyle(style);
     redraw();
+}
+
+void stackDists(TString expr, TString bins, TString cut="1", TString cdf="no") {
+    stree->Draw(expr+">>hS("+bins+")","("+base+")&&("+scut+")&&("+cut+")","GOFF");
+    btree->Draw(expr+">>hB("+bins+")","("+base+")&&("+bcut+")&&("+cut+")","GOFF");
+    THStack *stk = new THStack("hstack","");
+    TH1 *hS = (TH1*) gROOT->FindObject("hS");
+    TH1 *hB = (TH1*) gROOT->FindObject("hB");
+    hS->SetLineColor(kBlue); hS->SetLineWidth(2);
+    hB->SetLineColor(kRed); hB->SetLineWidth(2);
+    if (cdf == "left") { iih1(hS, 1.0, true); iih1(hB, 1.0, true); }
+    else if (cdf == "right") { iih1(hS, 1.0, false); iih1(hB, 1.0, false); }
+    else { hS->Scale(1.0/hS->Integral()); hB->Scale(1.0/hB->Integral()); }
+    stk->Add(hS);
+    stk->Add(hB);
+    stk->Draw("HIST NOSTACK"); 
 }
