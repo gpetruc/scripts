@@ -1,0 +1,2 @@
+#!/bin/bash
+bjobs -UF $*  | perl -ne 'm/.*Submitted from.*CWD <(.*)>;/ and print "$1\n"' | sort | uniq

@@ -1,0 +1,33 @@
+#!/bin/bash
+
+while true; do clear;
+( uptime;
+  echo;
+  for Dir in $*; do
+    echo "$Dir"
+    ls -1d $Dir/*_Chunk* > $Dir/all_chunks
+    cmgListChunksToResub -d $Dir > $Dir/to_resub;
+    ~/sh/running_chunks > $Dir/all_really_runing
+    : > $Dir/running; : > $Dir/to_retry_sub;
+    for C in $( awk '/^#.*running/{print $3}' $Dir/to_resub ); do
+        if grep -q "${C}$" $Dir/all_really_runing; then
+             echo "${C}" >> $Dir/running;
+        else
+             echo "cmgResubChunk -q 8nh ${C}" >> $Dir/to_retry_sub;
+        fi;
+    done
+    echo -n "   Running: "; cat $Dir/running | wc -l
+    echo -n "   NotSub:  "; cat $Dir/to_retry_sub | wc -l
+    echo -n "   Failed:  "; cat $Dir/to_resub | grep -c -v '^#'  
+    echo -n "   Total:   "; cat $Dir/all_chunks |  wc -l
+    echo
+  done;
+  echo;
+  ~/sh/lsfstat; 
+  echo; 
+  fs listq ~ ~/w
+) | tee ~/public_html/batch-status.txt 
+echo; echo sleep; sleep 2m || break;
+done
+
+    
