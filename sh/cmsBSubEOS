@@ -17,8 +17,8 @@ fi
 if [[ "$CMSBSUB_QUEUE" == "" ]]; then CMSBSUB_DOIT=0; fi;
 if [[ "$CMSBSUB_DOIT" == "1" ]]; then
     if bqueues $CMSBSUB_QUEUE > /dev/null; then
-        bsub -q $CMSBSUB_QUEUE ~/sh/cmsRunBatchEOS $PWD $*;
+        bsub -q $CMSBSUB_QUEUE ~gpetrucc/sh/cmsRunBatchEOS $PWD $*;
     fi;
 else
-    echo bsub -q 8nh ~/sh/cmsRunBatchEOS $PWD $*
+    echo bsub -q 8nh ~gpetrucc/sh/cmsRunBatchEOS $PWD $*
 fi;
