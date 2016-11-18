@@ -7,7 +7,7 @@ while true; do clear;
     echo "$Dir"
     ls -1d $Dir/*_Chunk* > $Dir/all_chunks
     cmgListChunksToResub -d $Dir > $Dir/to_resub;
-    ~/sh/running_chunks > $Dir/all_really_runing
+    ~/sh/running_chunks | sed "s#\$HOME#$HOME#g" > $Dir/all_really_runing
     : > $Dir/running; : > $Dir/to_retry_sub;
     for C in $( awk '/^#.*running/{print $3}' $Dir/to_resub ); do
         if grep -q "${C}$" $Dir/all_really_runing; then
