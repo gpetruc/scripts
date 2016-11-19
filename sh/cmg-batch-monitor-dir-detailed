@@ -4,29 +4,42 @@ while true; do clear;
 ( uptime;
   echo;
   for Dir in $*; do
-    echo "$Dir"
-    ls -1d $Dir/*_Chunk* > $Dir/all_chunks
-    cmgListChunksToResub -d $Dir > $Dir/to_resub;
-    ~/sh/running_chunks | sed "s#\$HOME#$HOME#g" > $Dir/all_really_runing
-    : > $Dir/running; : > $Dir/to_retry_sub;
-    for C in $( awk '/^#.*running/{print $3}' $Dir/to_resub ); do
-        if grep -q "${C}$" $Dir/all_really_runing; then
-             echo "${C}" >> $Dir/running;
+    echo "$Dir:"
+    Metadata=$Dir;
+    if echo $Metadata | grep -q '^/eos'; then
+        if test \! -d $Dir/metadata; then
+            N=$PPID
+            while test -d /dev/shm/$USER/metadata/$N; do
+                N=$(( $N + 1 ))
+            done;
+            mkdir -p /dev/shm/$USER/metadata/$N && ln -sd /dev/shm/$USER/metadata/$N $Dir/metadata;
+        fi;
+        Metadata=$Dir/metadata
+    fi;
+    ls -1d $Dir/*_Chunk* > $Metadata/all_chunks
+    echo -n " collecing info on $(cat $Metadata/all_chunks | wc -l) chunks, please wait ...";
+    cmgListChunksToResub -d $Dir > $Metadata/to_resub;
+    ~/sh/running_chunks | sed "s#\$HOME#$HOME#g" > $Metadata/all_really_runing
+    : > $Metadata/running; : > $Metadata/to_retry_sub;
+    for C in $( awk '/^#.*running/{print $3}' $Metadata/to_resub ); do
+        if grep -q "${C}$" $Metadata/all_really_runing; then
+             echo "${C}" >> $Metadata/running;
         else
-             echo "cmgResubChunk -q 8nh ${C}" >> $Dir/to_retry_sub;
+             echo "cmgResubChunk -q 8nh ${C}" >> $Metadata/to_retry_sub;
         fi;
     done
-    echo -n "   Running: "; cat $Dir/running | wc -l
-    echo -n "   NotSub:  "; cat $Dir/to_retry_sub | wc -l
-    echo -n "   Failed:  "; cat $Dir/to_resub | grep -c -v '^#'  
-    echo -n "   Total:   "; cat $Dir/all_chunks |  wc -l
-    sed 's/_Chunk[0-9]\+//g' $Dir/all_chunks | sort | uniq > $Dir/all_samples
+    echo -ne "\r                                                                                     \r";
+    echo -n "   Running: "; cat $Metadata/running | wc -l
+    echo -n "   NotSub:  "; cat $Metadata/to_retry_sub | wc -l
+    echo -n "   Failed:  "; cat $Metadata/to_resub | grep -c -v '^#'  
+    echo -n "   Total:   "; cat $Metadata/all_chunks |  wc -l
+    sed 's/_Chunk[0-9]\+//g' $Metadata/all_chunks | sort | uniq > $Metadata/all_samples
     echo "   ---"
     echo -e "ALL\tRUN\tFAIL\tGOOD\tACTION\tSAMPLE"
-    for S in $(cat $Dir/all_samples); do
-        ALL=$(grep -c ${S}_Chunk $Dir/all_chunks)
-        RUN=$(cat $Dir/running | grep -c ${S}_Chunk)
-        FAIL=$(grep -v running $Dir/to_resub | cat - $Dir/to_retry_sub | sort | uniq | grep -c ${S}_Chunk)
+    for S in $(cat $Metadata/all_samples); do
+        ALL=$(grep -c ${S}_Chunk $Metadata/all_chunks)
+        RUN=$(cat $Metadata/running | grep -c ${S}_Chunk)
+        FAIL=$(grep -v running $Metadata/to_resub | cat - $Metadata/to_retry_sub | sort | uniq | grep -c ${S}_Chunk)
         GOOD=$(( $ALL - $RUN - $FAIL ))
         (( $GOOD == $ALL )) && STATUS="done" 
         (( $RUN > 0 )) && STATUS="wait" 
