@@ -1,3 +1,4 @@
 #!/bin/bash
 eos=/afs/cern.ch/project/eos/installation/0.3.15/bin/eos.select
 $eos quota | grep -B 3 gpetrucc
+$eos root://eosuser.cern.ch quota | grep -B3 gpetrucc
