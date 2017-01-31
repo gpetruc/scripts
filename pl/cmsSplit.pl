@@ -270,7 +270,8 @@ foreach (@pythonFileInfo) {
     #$file =~ s/\.root$/$label.root/;
     push @outputModules, [$module,$file];
     print "Found enabled output module $module producing $file\n" if $verbose > 0;
-    $mergeList{$module} = {'outfile'=>$file, 'infiles'=>[]};
+    my $ofile = $file; $ofile =~ s/\.root$/$label.".root"/e;
+    $mergeList{$module} = {'outfile'=>$ofile, 'infiles'=>[]};
 }
 
 #===============================================================
