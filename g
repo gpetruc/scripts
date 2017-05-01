@@ -66,5 +66,5 @@ function dasql {
 if git --exec-path | grep -q 1.8.3.1-odfocd2; then
     alias git='git --exec-path=/cvmfs/cms.cern.ch/slc6_amd64_gcc491/external/git/1.8.3.1-odfocd/libexec/git-core/'
 fi;
-
+test -d /data/gpetrucc/tmp && export TMPDIR=/data/gpetrucc/tmp 
 export X509_USER_PROXY=/afs/cern.ch/user/g/gpetrucc/priv/proxy

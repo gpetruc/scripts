@@ -4,18 +4,22 @@ use warnings;
 use Getopt::Long;
 
 my $out = "/tmp/gpetrucc/merged.root";
+my $maxev = -1;
 my $help;
 my $sort;
 my $xrd;
 my $mix;
+my $compress;
 my $bare;
 my $uniq;
 
 GetOptions(
     'o|out|output=s'=>\$out,
     's|sort=s'=>\$sort,
+    'n|max-ev=s'=>\$maxev,
     'r|xrootd'=>\$xrd,
     'm|mixed'=>\$mix,
+    'c|compress'=>\$compress,
     'b|bare'=>\$bare,
     'u|uniq'=>\$uniq,
     'help|h|?'=>\$help,
@@ -74,6 +78,7 @@ process = cms.Process('cmsMerge')
 process.load("FWCore.MessageLogger.MessageLogger_cfi")
 process.options   = cms.untracked.PSet( wantSummary = cms.untracked.bool(True) )
 process.MessageLogger.cerr.FwkReport.reportEvery = 1000
+process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32($maxev))
 
 process.source = cms.Source("PoolSource", fileNames = cms.untracked.vstring(), skipBadFiles = cms.untracked.bool(False))
 process.source.fileNames = [\n$in]
@@ -81,6 +86,18 @@ process.source.fileNames = [\n$in]
 process.out = cms.OutputModule("PoolOutputModule",fileName = cms.untracked.string('$out'))
 process.end = cms.EndPath(process.out)  
 EOF
+
+if (defined($compress)) {
+print <<EOF;
+process.out.compressionAlgorithm = cms.untracked.string('LZMA')
+process.out.compressionLevel = cms.untracked.int32(4)
+process.out.dropMetaData = cms.untracked.string('ALL')
+process.out.fastCloning = cms.untracked.bool(False)
+process.out.overrideInputFileSplitLevels = cms.untracked.bool(True)
+process.out.eventAutoFlushCompressedSize = cms.untracked.int32(15728640)
+EOF
+
+}
 
 if (defined($uniq)) {
 print <<EOF;

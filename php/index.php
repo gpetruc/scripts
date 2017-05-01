@@ -26,6 +26,7 @@ div.pic {
     -moz-box-shadow: 7px 5px 5px rgb(80,80,80);    /* Firefox 3.5 */
     -webkit-box-shadow: 7px 5px 5px rgb(80,80,80); /* Chrome, Safari */
     box-shadow: 7px 5px 5px rgb(80,80,80);         /* New browsers */  
+    width: 320px;
 }
 a { text-decoration: none; color: rgb(80,0,0); }
 a:hover { text-decoration: underline; color: rgb(255,80,80); }
@@ -85,8 +86,9 @@ if ($_GET['noplots']) {
              }
         }
         array_push($displayed, $filename);
+        $brfname = str_replace("_","_&shy;",$filename);
         print "<div class='pic'>\n";
-        print "<h3><a href=\"$filename\">$filename</a></h3>";
+        print "<h3><a href=\"$filename\">$brfname</a></h3>";
         print "<a href=\"$filename\"><img src=\"$filename\" style=\"border: none; width: 300px; \"></a>";
         $others = array();
         foreach ($other_exts as $ex) {

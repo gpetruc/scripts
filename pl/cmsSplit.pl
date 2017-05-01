@@ -8,8 +8,8 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$maxfiles,$json,$fnal,$AAA,$addparents,$randomize);
-my ($bash,$lsf,$help,$byrun,$bysize);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$json,$fnal,$AAA,$addparents,$randomize);
+my ($bash,$lsf,$help,$byrun,$bysize,$nomerge);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
 my $maxsyncjobs = 99;
@@ -41,8 +41,10 @@ GetOptions(
     'max-sync-jobs=i'=>\$maxsyncjobs,
     'help|h|?'=>\$help,
     'customize|c=s'=>\$customize,
+    'inline-customize=s'=>\$inlinecustomize,
     'maxfiles=i'=>\$maxfiles,
     'subprocess=i'=>\$subprocesses,
+    'nomerge'=>\$nomerge,
     'fnal'=>\$fnal,
     'AAA'=>\$AAA,
     'add-parents'=>\$addparents,
@@ -108,6 +110,7 @@ options:
   --subprocess N: assume the subprocess of order N is the one doing the real output. Only N=0 (no subprocess) or N=1 are supported now.
   --fnal: use fnal xrootd redirector
   --AAA:  use cern global xrootd redirector
+  --nomerge:  don't merge the outputs
 EOF
 }
 
@@ -271,7 +274,9 @@ foreach (@pythonFileInfo) {
     push @outputModules, [$module,$file];
     print "Found enabled output module $module producing $file\n" if $verbose > 0;
     my $ofile = $file; $ofile =~ s/\.root$/$label.".root"/e;
-    $mergeList{$module} = {'outfile'=>$ofile, 'infiles'=>[]};
+    unless ($nomerge) {
+        $mergeList{$module} = {'outfile'=>$ofile, 'infiles'=>[]};
+    }
 }
 
 #===============================================================
@@ -493,16 +498,20 @@ foreach my $j (1 .. $jobs) {
     foreach (@outputModules) {
         my ($n,$f) = @$_;
         $f =~ s/\.root$/$label ."_job$j.root"/e;
-        push @{$mergeList{$n}->{'infiles'}}, $f;
         $postamble .= "$THEPROCESS.$n.fileName = '$f'\n";
-        push @cleanup, $f;
+        unless($nomerge) {
+            push @{$mergeList{$n}->{'infiles'}}, $f;
+            push @cleanup, $f;
+        }
     }
     if ($tfsFile) {
         my $f = $tfsFile; 
         $f =~ s/\.root$/$label ."_job$j.root"/e;
         $postamble .= "$THEPROCESS.TFileService.fileName = '$f'\n";
-        push @tfsMerge, $f;
-        push @cleanup, $f;
+        unless($nomerge) {
+            push @tfsMerge, $f;
+            push @cleanup, $f;
+        }
     }
     if ($json) {
         $postamble .= "import FWCore.PythonUtilities.LumiList as LumiList\n";
@@ -517,6 +526,9 @@ foreach my $j (1 .. $jobs) {
         $postamble .= "rnd = random.SystemRandom()\n";
         $postamble .= "for X in process.RandomNumberGeneratorService.parameterNames_():\n";
         $postamble .= "   if X != 'saveFileName': getattr(process.RandomNumberGeneratorService,X).initialSeed = rnd.randint(1,99999999)\n";
+    }
+    if ($inlinecustomize) {
+        $postamble .= "## Inline customize begin\n$inlinecustomize\n## Inline customize end\n";
     }
     print " and will append postamble\n$postamble\n" if $verbose > 1;
     my $text = $src . "\n### ADDED BY cmsSplit.pl ###\n" . $postamble;
@@ -559,7 +571,7 @@ EOF
 }
 
 ## make TFileSerivce merge script
-if ($tfsFile) {
+if ($tfsFile and not($nomerge)) {
     my $pyfile = $basename . $label . "_merge_TFileService.sh";
     print "Will create TFileService merge job, source $pyfile\n" if $verbose;
     my $tfsOut = $tfsFile; $tfsOut =~ s/\.root$/$label.root/;
@@ -638,20 +650,23 @@ while ps x | grep -q "cmsRun $jgrep"; do
     $monitor $jlglob;
     sleep 5;
     done;
-echo "Jobs done. starting merge....";
+echo "Jobs done.";
 $report $jlglob | tee $reportfile;
 EOF
-    foreach my $m (sort(keys(%mergeList))) {
-        my $mfile = $basename . $label . "_merge_$m.py";
-        my $mlog  = $basename . $label . "_merge_$m.log";
-        print OUT "cmsRun $mfile >  $mlog 2>&1;\n"; push @cleanup, $mlog;
+    unless ($nomerge) {
+        print OUT "echo 'Doing the merge'\n";
+        foreach my $m (sort(keys(%mergeList))) {
+            my $mfile = $basename . $label . "_merge_$m.py";
+            my $mlog  = $basename . $label . "_merge_$m.log";
+            print OUT "cmsRun $mfile >  $mlog 2>&1;\n"; push @cleanup, $mlog;
+        }
+        if ($tfsFile) {
+            my $tfsfile = $basename . $label . "_merge_TFileService.sh";
+            my $tfslog  = $basename . $label . "_merge_TFileService.log";
+            print OUT "bash $tfsfile > $tfslog 2>&1; \n"; push @cleanup, $tfslog;
+        }
+        print OUT "echo 'All merge jobs done.'\n";
     }
-    if ($tfsFile) {
-        my $tfsfile = $basename . $label . "_merge_TFileService.sh";
-        my $tfslog  = $basename . $label . "_merge_TFileService.log";
-        print OUT "bash $tfsfile > $tfslog 2>&1; \n"; push @cleanup, $tfslog;
-    }
-    print OUT "echo 'All merge jobs done.\n'";
     close OUT;
     chmod 0755, $pyfile;
 }
