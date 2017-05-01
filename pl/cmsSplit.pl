@@ -9,13 +9,14 @@ use Cwd;
 
 my $verbose = 1; my $label = ''; 
 my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$json,$fnal,$AAA,$addparents,$randomize);
-my ($bash,$lsf,$help,$byrun,$bysize,$nomerge);
+my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
 my $maxsyncjobs = 99;
 my $subprocesses = 0;
 my $firstlumiblock = 1;
 my @job2run;
+my @job2evts;
 
 GetOptions(
     'args'=>\$args,
@@ -38,6 +39,7 @@ GetOptions(
     'label=s'=>\$label,
     'triangular'=>\$triangular,
     'events-per-job|ej=i'=>\$evjob,
+    'events-per-file-job|efj=i'=>\$evperfilejob,
     'max-sync-jobs=i'=>\$maxsyncjobs,
     'help|h|?'=>\$help,
     'customize|c=s'=>\$customize,
@@ -78,7 +80,12 @@ split_options:
        --events-per-job: specify the number of events per job
                         shortcut: --ej
       note: this will not work if you use other PoolSource parameters like 'lumisToProcess' or 'eventsToProcess'
-      note 2: it won't change the random seeds, so don't use it with generator sources (not yet, at least)
+      note 2: it won't change the random seeds unless you add the --randomize option
+  * split per events from files: 
+       --events-per-file-job: specify the number of events per job
+                        shortcut: --efj
+      note: this will be very slow, as it will have to query the number of events in each file to edmFileUtil or DAS
+      note 2: some jobs will process less than this number of events 
 
 input:
   default:    takes as input the files from the cfg.py
@@ -251,6 +258,10 @@ if (defined($evjob)) {
 } elsif (defined($filesperjob)) {
     die "Can't use 'files-per-job and jobs at the same time.\n" if defined($jobs);
     $jobs = ceil(scalar(@files)/$filesperjob);
+} elsif (defined($evperfilejob)) {
+    $filesperjob = scalar(@files);
+    $jobs = 1;
+    print "This will be slow\n" if $verbose;
 } else {
     die "Please specify the number of jobs (parameter --jobs or -n, or --files-per-job or -nj).\n" unless defined($jobs);
     if ($jobs > scalar(@files)) { $jobs = scalar(@files); }
@@ -442,6 +453,44 @@ if ($byrun) {
     $splits = \@alljobs;
     $jobs = scalar(@alljobs);
     #die "Fin qui tutto bene\n";
+} elsif ($evperfilejob) {
+    my %file2events = ();
+    my $flatfiles = join(' ', @files);
+    my @epj = qx{ ~gpetrucc/py/edmlsevents.py $flatfiles };
+    foreach (@epj) {
+        my ($f,$e) = m/(^\S+)\s+(\d+)/ or next;
+        $file2events{$f} = $e;
+    }
+    my @fsorted = sort { $file2events{$b} cmp $file2events{$a} } @files;
+    my %taken = ();
+    my @alljobs = ();
+    while (scalar(keys(%taken)) < scalar(@files)) {
+        my $subtot = 0;
+        my @jobfiles = ();
+        foreach my $f (@fsorted) {
+            next if $taken{$f};
+            if ($subtot == 0 or $subtot + $file2events{$f} < $evperfilejob) {
+                push @jobfiles, $f; $taken{$f} = 1;
+                $subtot += $file2events{$f};
+            }
+        }
+        printf ("Step 0: job %d, %d files, %d events\n", scalar(@alljobs), scalar(@jobfiles), $subtot); 
+        if ($subtot < 1.5 * $evperfilejob) {
+            printf ("Step 1: job %d, %d files, %d events\n", scalar(@alljobs), scalar(@jobfiles), $subtot); 
+            push @alljobs, [ @jobfiles ];
+            push @job2evts, [ 0, -1 ];
+        } else {
+            my $estart = 0;    
+            while ($estart < $subtot) {
+                printf ("Step 1: job %d, %d files, max %d events, skip %d\n", scalar(@alljobs), scalar(@jobfiles), $evperfilejob, $estart); 
+                push @alljobs, [ @jobfiles ];
+                push @job2evts, [ $estart, $evperfilejob ];
+                $estart += $evperfilejob;
+            }
+        }
+    }
+    $splits = \@alljobs;
+    $jobs = scalar(@alljobs);
 } else {
     $splits = ($triangular ? split_triang() : split_even());
 }
@@ -476,7 +525,12 @@ foreach my $j (1 .. $jobs) {
         @myfiles = @{$splits->[$j-1]};
         my $inputfiles = join('', map("\t'$_',\n", @myfiles));
         $postamble .= "process.source.fileNames = [\n$inputfiles]\n";
-        $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32(-1))\n";
+        if (defined($evperfilejob)) {
+            $postamble .= "process.source.skipEvents = cms.untracked.uint32(".($job2evts[$j-1]->[0]).")\n";
+            $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32(".($job2evts[$j-1]->[1])."))\n";
+        } else {
+            $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32(-1))\n";
+        }
     }
     if ($addparents) {
         my %parents = ();
