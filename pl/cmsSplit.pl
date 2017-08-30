@@ -8,8 +8,8 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$json,$fnal,$AAA,$addparents,$randomize);
-my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$skipfiles,$json,$fnal,$AAA,$T0,$addparents,$randomize);
+my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob,$evperfile);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
 my $maxsyncjobs = 99;
@@ -40,15 +40,18 @@ GetOptions(
     'triangular'=>\$triangular,
     'events-per-job|ej=i'=>\$evjob,
     'events-per-file-job|efj=i'=>\$evperfilejob,
+    'events-per-file|ef=i'=>\$evperfile,
     'max-sync-jobs=i'=>\$maxsyncjobs,
     'help|h|?'=>\$help,
     'customize|c=s'=>\$customize,
     'inline-customize=s'=>\$inlinecustomize,
     'maxfiles=i'=>\$maxfiles,
+    'skipfiles=i'=>\$skipfiles,
     'subprocess=i'=>\$subprocesses,
     'nomerge'=>\$nomerge,
     'fnal'=>\$fnal,
     'AAA'=>\$AAA,
+    'T0'=>\$T0,
     'add-parents'=>\$addparents,
     'randomize'=>\$randomize,
     'first-lumi-block|flb=i'=>\$firstlumiblock
@@ -94,9 +97,7 @@ input:
   --filelist: takes as input the root files contained in this file. 
               it works also if the file contains more columns than the file names (but no more than one filename per line)
               it does not work if the file contains duplicates (not yet, at least)
-  --castor:   takes as input the contents of a castor directory, plus an optional glob for the file
-              (e.g. /castor/cern.ch/user/g/gpetrucc/<dir>/  or /castor/cern.ch/user/g/gpetrucc/<dir>/<pattern>
-  --filedir:  takes as input the contents of a local directory, plus an optional glob for the file
+  --files:    takes as input the contents of a local directory, plus an optional glob for the file
               (e.g. /data/gpetrucc/<dir>/  or /data/gpetrucc/<dir>/<pattern>)
   --json:     takes as input a JSON file to apply
 
@@ -117,6 +118,7 @@ options:
   --subprocess N: assume the subprocess of order N is the one doing the real output. Only N=0 (no subprocess) or N=1 are supported now.
   --fnal: use fnal xrootd redirector
   --AAA:  use cern global xrootd redirector
+  --T0:  use direct access to Tier0
   --nomerge:  don't merge the outputs
 EOF
 }
@@ -203,27 +205,21 @@ if (defined($dbsql)) {
         elsif ($f !~ m{^(/store|\w+:)}) { $f = 'file:'.$f; }
         push @files, $f;
     }
-}  elsif (defined($castor)) {
-    my ($dir,$pat) = ($castor =~ m{^(.*)/(.*)$});
-    if ($pat =~ /^[a-zA-Z0-9_\-\.]+$/) { $dir .= "/".$pat; $pat = ""; }
-    print "Using input files from castor dir $dir" . ($pat ? ", glob $pat\n" : "\n") if $verbose;
-    @files = qx(nsls $dir); chomp @files;
-    if ($pat) {
-        # convert glob 2 pattern, adapted from http://docstore.mik.ua/orelly/perl/cookbook/ch06_10.htm
-        my %patmap = ('*' => '.*', '?' => '.','[' => '[',']' => ']');
-        $pat =~ s{(.)}{ $patmap{$1} || "\Q$1\E" }ge;
-        @files = grep(m/^$pat$/, @files) if ($pat);
-    }
-    @files = map( "rfio:$dir/$_", @files );
 }  elsif (defined($filedir)) {
     print "Using input files from $filedir\n" if $verbose;
     if ($filedir =~ m{^/store/}) {
         my $stdir  = dirname($filedir);
         my $stglob = basename($filedir);
-        $stglob =~ s/\./\\./; # convert a 
-        $stglob =~ s/\?/./;   # regex to 
-        $stglob =~ s/\*/.*/;  # a glob.
+        if ($stglob =~ /.*(\*|\?).*|.*\.root/) {
+            $stglob =~ s/\./\\./; # convert a 
+            $stglob =~ s/\?/./;   # regex to 
+            $stglob =~ s/\*/.*/;  # a glob.
+        } else {
+            $stdir = $filedir;
+            $stglob = ".*";
+        }
         @files = ();
+        print "$stdir\n";
         foreach my $line (qx(/afs/cern.ch/project/eos/installation/cms/bin/eos.select ls $stdir)) {
             my ($thisfile) = ($line =~ m/(\S+\.root)/) or next;
             if (basename($thisfile) =~ m{$stglob}) {
@@ -244,9 +240,15 @@ chomp @files;
 if ($AAA) {
     print "Using cms-xrd-global.cern.ch redirector\n" if $verbose;
     foreach (@files) { s{^/store/}{root://cms-xrd-global.cern.ch//store/}; }
+} elsif ($T0) {
+    print "Using Tier0\n" if $verbose;
+    foreach (@files) { s{^/store/}{root://eoscms//eos/cms/tier0/store/}; }
 } elsif ($fnal) {
     print "Using cmsxrootd.fnal.gov redirector\n" if $verbose;
     foreach (@files) { s{^/store/}{root://cmsxrootd.fnal.gov//store/}; }
+}
+if (defined($skipfiles)) {
+    @files = @files[$skipfiles .. $#files];
 }
 if (defined($maxfiles) and (scalar(@files) > $maxfiles)) {
     @files = @files[0 .. ($maxfiles-1)];
@@ -261,7 +263,7 @@ if (defined($evjob)) {
 } elsif (defined($evperfilejob)) {
     $filesperjob = scalar(@files);
     $jobs = 1;
-    print "This will be slow\n" if $verbose;
+    print "This will be slow\n" if $verbose and not $evperfile;
 } else {
     die "Please specify the number of jobs (parameter --jobs or -n, or --files-per-job or -nj).\n" unless defined($jobs);
     if ($jobs > scalar(@files)) { $jobs = scalar(@files); }
@@ -455,11 +457,17 @@ if ($byrun) {
     #die "Fin qui tutto bene\n";
 } elsif ($evperfilejob) {
     my %file2events = ();
-    my $flatfiles = join(' ', @files);
-    my @epj = qx{ ~gpetrucc/py/edmlsevents.py $flatfiles };
-    foreach (@epj) {
-        my ($f,$e) = m/(^\S+)\s+(\d+)/ or next;
-        $file2events{$f} = $e;
+    if ($evperfile) {
+        foreach my $f (@files) {
+            $file2events{$f} = $evperfile;
+        }
+    } else {
+        my $flatfiles = join(' ', @files);
+        my @epj = qx{ ~gpetrucc/py/edmlsevents.py $flatfiles };
+        foreach (@epj) {
+            my ($f,$e) = m/(^\S+)\s+(\d+)/ or next;
+            $file2events{$f} = $e;
+        }
     }
     my @fsorted = sort { $file2events{$b} cmp $file2events{$a} } @files;
     my %taken = ();
@@ -684,7 +692,7 @@ if ($bash and not($pretend)) {
 
         if ($j % $maxsyncjobs == 0) {
             print OUT <<EOF;
-sleep 5;
+sleep 10;
 while ps x | grep -q "cmsRun $jgrep"; do
     clear;
 echo "At \$(date), jobs are still running...";
