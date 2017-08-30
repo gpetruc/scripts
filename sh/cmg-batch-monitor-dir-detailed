@@ -19,7 +19,7 @@ while true; do clear;
     ls -1d $Dir/*_Chunk* > $Metadata/all_chunks
     echo -n " collecing info on $(cat $Metadata/all_chunks | wc -l) chunks, please wait ...";
     cmgListChunksToResub -d $Dir > $Metadata/to_resub;
-    ~/sh/running_chunks | sed "s#\$HOME#$HOME#g" > $Metadata/all_really_runing
+    ~/sh/running_chunks | sed -e "s#\$HOME#$HOME#g" -e 's#$#/#' > $Metadata/all_really_runing
     : > $Metadata/running; : > $Metadata/to_retry_sub;
     for C in $( awk '/^#.*running/{print $3}' $Metadata/to_resub ); do
         if grep -q "${C}$" $Metadata/all_really_runing; then
