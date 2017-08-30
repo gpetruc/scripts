@@ -33,7 +33,7 @@ for arg in args:
         pattern = os.path.basename(arg).replace(".","\\.").replace("*",".*")+"$" 
     if path.startswith("/eos/cms"): path = path.replace("/eos/cms","")
     cpattern = re.compile(pattern)
-    out = subprocess.check_output(["/afs/cern.ch/project/eos/installation/cms/bin/eos.select", "ls", "-l", "/eos/cms"+path ])
+    out = subprocess.check_output(["ls", "-l", "/eos/cms"+path ])
     files = []
     totsize = 0
     for line in out.split("\n"):
@@ -45,7 +45,7 @@ for arg in args:
              continue
         if re.match(cpattern,filename):
             files.append(path+"/"+filename)
-            totsize += long(size)
+            totsize += long(size)/2 # fuse returns twice the size
     if len(files) > 0:
         chunksize = options.chunks
         if len(files) < options.jobs * chunksize:
