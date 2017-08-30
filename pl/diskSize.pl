@@ -71,6 +71,8 @@ foreach (split(/\n/, $IN)) {
   }
   next unless defined $obj;
   if ((m/\w+\[\S+/) && ($survey{$item}->{'type'} ne 'edmTriggerResults')) { $arrays{$item} = 1;  }
+  elsif (m/.*\.obj\s+:\s+vector</) { $arrays{$item} = 1;  }
+  elsif (m/^\*\s+\|\s+vector</)  { $arrays{$item} = 1;  }
   if (m/Entries\s+:\s*(\d+)\s+:\s+Total\s+Size=\s+(\d+)\s+bytes\s+File\s+Size\s+=\s+(\d+)/) {
         die "Mismatching number of events ($events, $1) " unless (($events == 0) || ($events == $1));
         $events = $1;
