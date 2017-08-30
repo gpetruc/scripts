@@ -56,7 +56,6 @@ function crabwhich {
     fi;
 }
 alias psc="ps x | grep 'cmsRun\|combine\|tmp_heppy.py' | grep -v grep"
-. /afs/cern.ch/project/eos/installation/cms/etc/setup.sh
 function dasql {
    q="$1"; shift;
    das_client.py --query="$q" $*
