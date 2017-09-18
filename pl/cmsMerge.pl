@@ -7,9 +7,10 @@ my $out = "/tmp/gpetrucc/merged.root";
 my $maxev = -1;
 my $help;
 my $sort;
-my $xrd;
 my $mix;
 my $compress;
+my $miniAOD;
+my $nanoAOD;
 my $bare;
 my $uniq;
 
@@ -17,9 +18,10 @@ GetOptions(
     'o|out|output=s'=>\$out,
     's|sort=s'=>\$sort,
     'n|max-ev=s'=>\$maxev,
-    'r|xrootd'=>\$xrd,
     'm|mixed'=>\$mix,
     'c|compress'=>\$compress,
+    'M|miniAOD'=>\$miniAOD,
+    'N|nanoAOD'=>\$nanoAOD,
     'b|bare'=>\$bare,
     'u|uniq'=>\$uniq,
     'help|h|?'=>\$help,
@@ -61,7 +63,6 @@ if (defined($cdir)) {
         my $prefix = "file:";
         if ($file =~ m{^/store/}) { $prefix = ""; }
         if ($file =~ m{^/castor/}) { $prefix = "rfio:"; }
-        if (defined($xrd) and $file =~ m{^/data/}) { $prefix = "root://pcmssd12.cern.ch/"; }
         $in .= "\t'$prefix$file',\n";
     }
 }
@@ -70,6 +71,9 @@ if (defined($bare)) {
     print "process.source.fileNames = [\n$in]\n";
     exit();
 }
+
+my $outputModule = "PoolOutputModule";
+if (defined($nanoAOD))  $outputModule = "NanoAODOutputModule";
 
 print <<EOF;
 import FWCore.ParameterSet.Config as cms
@@ -83,7 +87,7 @@ process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32($maxev))
 process.source = cms.Source("PoolSource", fileNames = cms.untracked.vstring(), skipBadFiles = cms.untracked.bool(False))
 process.source.fileNames = [\n$in]
 
-process.out = cms.OutputModule("PoolOutputModule",fileName = cms.untracked.string('$out'))
+process.out = cms.OutputModule("$outputModule",fileName = cms.untracked.string('$out'))
 process.end = cms.EndPath(process.out)  
 EOF
 
@@ -98,6 +102,79 @@ process.out.eventAutoFlushCompressedSize = cms.untracked.int32(15728640)
 EOF
 
 }
+
+if (defined($miniAOD)) {
+print <<EOF;
+process.out.compressionAlgorithm = cms.untracked.string('LZMA')
+process.out.compressionLevel = cms.untracked.int32(4)
+process.out.dataset = cms.untracked.PSet(
+        dataTier = cms.untracked.string(''),
+        filterName = cms.untracked.string('')
+    )
+process.out.dropMetaData = cms.untracked.string('ALL')
+process.out.eventAutoFlushCompressedSize = cms.untracked.int32(-900)
+process.out.fastCloning = cms.untracked.bool(False)
+process.out.overrideBranchesSplitLevel = cms.untracked.VPSet(cms.untracked.PSet(
+        branch = cms.untracked.string('patPackedCandidates_packedPFCandidates__*'),
+        splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('recoGenParticles_prunedGenParticles__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('patTriggerObjectStandAlones_slimmedPatTrigger__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('patPackedGenParticles_packedGenParticles__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('patJets_slimmedJets__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('recoVertexs_offlineSlimmedPrimaryVertices__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('recoCaloClusters_reducedEgamma_reducedESClusters_*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('EcalRecHitsSorted_reducedEgamma_reducedEBRecHits_*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('EcalRecHitsSorted_reducedEgamma_reducedEERecHits_*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('recoGenJets_slimmedGenJets__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('patJets_slimmedJetsPuppi__*'),
+            splitLevel = cms.untracked.int32(99)
+        ), 
+        cms.untracked.PSet(
+            branch = cms.untracked.string('EcalRecHitsSorted_reducedEgamma_reducedESRecHits_*'),
+            splitLevel = cms.untracked.int32(99)
+        ))
+process.out.overrideInputFileSplitLevels = cms.untracked.bool(True)
+process.out.splitLevel = cms.untracked.int32(0)
+EOF
+
+}
+if (defined($nanoAOD)) {
+    print <<EOF;
+process.out.compressionLevel = cms.untracked.int(9)
+process.out.compressionAlgorithm = cms.untracked.string("LZMA")
+EOF
+}
+
+
 
 if (defined($uniq)) {
 print <<EOF;
