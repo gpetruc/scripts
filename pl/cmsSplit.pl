@@ -8,7 +8,7 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$skipfiles,$json,$fnal,$AAA,$T0,$addparents,$randomize);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$skipfiles,$json,$jsonfilter,$fnal,$AAA,$T0,$addparents,$randomize);
 my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob,$evperfile);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
@@ -28,6 +28,7 @@ GetOptions(
     'files-per-job|fj=i'=>\$filesperjob,
     'jobs|n=i'=>\$jobs,
     'json|j=s'=>\$json,
+    'jsonfilter'=>\$jsonfilter,
     'pretend|dry-run'=>\$pretend,
     'verbose|debug+'=>\$verbose,
     'bash'=>\$bash,
@@ -319,6 +320,32 @@ sub fixArgs {
     }
     return $cfgtxt;
 }
+if ($json) {
+    if ($json =~ /^https?:.*/) {
+        system("wget -N $json");
+        $json = basename($json);
+    }
+    if ($json !~ /^\/.*/) {
+        $json = getcwd() . "/" . $json;
+    }
+    print "Will use JSON $json\n";
+    if ($jsonfilter) {
+        use JSON;
+        open JSONFILE, "$json" or die "Can't read $json";
+        my %goodruns = %{ decode_json join("", <JSONFILE>) };
+        close JSONFILE;
+        my @filterfiles = ();
+        foreach (@files) {
+            if (m{/store/data/\w+/\w+/\w+/PromptReco-v\d+/000/(\d\d\d)/(\d\d\d)/\d\d\d\d\d/}) {
+                next unless exists $goodruns{$1 . $2};
+            }
+            push @filterfiles, $_;
+        }
+        print "Filtered from ".scalar(@files)." to ".scalar(@filterfiles)." using json\n";
+        @files = @filterfiles;
+    } 
+}
+
 #===============================================================
 # make jobs
 
@@ -505,16 +532,6 @@ if ($byrun) {
 
 if ($evjob) {  # in this case, put all files in all jobs
     $splits = [ map [@files], ( 1 .. $jobs ) ];
-}
-if ($json) {
-    if ($json =~ /^https?:.*/) {
-        system("wget -N $json");
-        $json = basename($json);
-    }
-    if ($json !~ /^\/.*/) {
-        $json = getcwd() . "/" . $json;
-    }
-    print "Will use JSON $json\n";
 }
 foreach my $j (1 .. $jobs) {
     my $pyfile = $basename . $label . "_job$j.py";
