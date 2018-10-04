@@ -5,6 +5,7 @@ from optparse import OptionParser
 parser = OptionParser(usage="usage: %prog paths ")
 parser.add_option("-j", dest="jobs", default=4,  type="int", help="parallel threads")
 parser.add_option("-c", dest="chunks", default=8,  type="int", help="number of files in a single edmFileUtil --ls request")
+parser.add_option("-w", dest="warn", default=False,  action="store_true", help="Warn about bad or corrupted files")
 (options, args) = parser.parse_args()
 if len(args) == 0:
     parser.print_usage()
@@ -17,13 +18,18 @@ def _run(files):
     ROOT.gROOT.SetBatch(True)
     ret = []
     for lfn in files:
-        tfile = ROOT.TNetXNGFile("root://eoscms//eos/cms"+lfn)
-        record = {}
-        for T in "LuminosityBlocks", "Events":
-            tree = tfile.Get(T)
-            record[T] = tree.GetEntries() if tree else 0
-        ret.append( record )
-        tfile.Close()
+        #tfile = ROOT.TNetXNGFile("root://eoscms//eos/cms"+lfn)
+        #tfile = ROOT.TFile.Open("root://eoscms//eos/cms"+lfn)
+        try:
+            tfile = ROOT.TFile.Open("/eos/cms"+lfn)
+            record = {}
+            for T in "LuminosityBlocks", "Events":
+                tree = tfile.Get(T)
+                record[T] = tree.GetEntries() if tree else 0
+            ret.append( record )
+            tfile.Close()
+        except:
+            if options.warn: sys.stderr.write("Error reading file /eos/cms"+lfn+"\n")
     return ret
 
 for arg in args:
@@ -42,6 +48,8 @@ for arg in args:
         except ValueError: 
             continue
         if int(repl) == 0 or int(size) < 10240:
+             if re.match(cpattern,filename):
+                 if options.warn: sys.stderr.write("Empty file /eos/cms/%s/%s (size %d)\n" % (path, filename, int(size)))
              continue
         if re.match(cpattern,filename):
             files.append(path+"/"+filename)
