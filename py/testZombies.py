@@ -17,7 +17,9 @@ for f in sys.argv:
         if not file.endswith(".root"): continue
         tfile = ROOT.TFile.Open(file)
         if not tfile or tfile.IsZombie():
-            print file
+            print "%s is zombie" % file
+        else:
+            print "%s is ok" % file
         try:
             tfile.Close()
         except:
