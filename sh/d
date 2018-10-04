@@ -171,7 +171,9 @@ function cmg-try-pr {
     if test -d $CMSSW_BASE/src/CMGTools/.git; then 
         echo "This is CMGTools-lite"
         WD=$CMSSW_BASE/src/CMGTools
-        if expr match $CMSSW_VERSION CMSSW_8_0_* > /dev/null; then
+        if expr match $CMSSW_VERSION CMSSW_9_4_* > /dev/null; then
+            CMG=94X_dev
+        elif expr match $CMSSW_VERSION CMSSW_8_0_* > /dev/null; then
             CMG=80X
         elif expr match $CMSSW_VERSION CMSSW_7_6_* > /dev/null; then
             CMG=76X
@@ -199,12 +201,6 @@ function cmg-try-pr {
 function cmg-here-pr {
     PR=$1
     if [[ "$PR" == "" ]]; then echo "Please specify PR number "; fi
-    CMG=CMGTools-from-CMSSW_7_2_3
-    if expr match $CMSSW_VERSION CMSSW_7_4_1[23456789]* > /dev/null; then
-        CMG=CMGTools-from-CMSSW_7_4_12
-    elif expr match $CMSSW_VERSION CMSSW_7_4_* > /dev/null; then
-        CMG=CMGTools-from-CMSSW_7_4_7
-    fi
     HERE=$(git branch | awk '{if ($1 == "*") print $2;}')
     [[ "$HERE" == "(detached" ]] && HERE="head_";
     BR="${HERE}_plus${PR}"
@@ -215,18 +211,13 @@ function cmg-here-pr {
     ( cd $CMSSW_BASE; scramv1 b -j 6; rm $CMSSW_BASE/lib/$SCRAM_ARCH/.poisonededmplugincache )
 }
 
-function cmg-try-merge-heppy {
-    git fetch cmg-central && \
-    git checkout -b test_heppy cmg-central/CMGTools-from-CMSSW_7_4_12 && \
-    git pull cmg-central heppy_74X && \
-    ( cd $CMSSW_BASE; scramv1 b -j 6; rm $CMSSW_BASE/lib/$SCRAM_ARCH/.poisonededmplugincache )
-}
 function cmg-heppy-pr {
     PR=$1
     if [[ "$PR" == "" ]]; then echo "Please specify PR number "; return; fi
     CMG=heppy_76X
     if expr match $CMSSW_VERSION CMSSW_7_4_* > /dev/null; then CMG=heppy_74X; fi;
     if expr match $CMSSW_VERSION CMSSW_8_0_* > /dev/null; then CMG=heppy_80X; fi;
+    if expr match $CMSSW_VERSION CMSSW_9_4_* > /dev/null; then CMG=heppy_94X_dev; fi;
     ( cd $CMSSW_BASE/src && \
     git fetch cmg-central && \
     git checkout cmg-central/$CMG 2> /dev/null && \

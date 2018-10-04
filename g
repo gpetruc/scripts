@@ -58,7 +58,7 @@ function crabwhich {
 alias psc="ps x | grep 'cmsRun\|combine\|tmp_heppy.py' | grep -v grep"
 function dasql {
    q="$1"; shift;
-   das_client.py --query="$q" $*
+   dasgoclient --query="$q" $*
 }
 
 # https://hypernews.cern.ch/HyperNews/CMS/get/git/210.html

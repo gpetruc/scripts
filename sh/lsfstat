@@ -8,5 +8,6 @@ for q in $(bjobs -u $USER 2> /dev/null | awk "/$USR/{print \$4}" | sort | uniq);
     bjobs -u $USER -q $q $* | awk '/:/{print $3"\t"$2}' | sort | uniq -c;
     ANY=1;
 done;
-if [[ "$ANY" == "0" ]]; then ~/sh/bann "Done"; fi;
+#if [[ "$ANY" == "0" ]]; then ~/sh/bann "Done"; fi;
+if [[ "$ANY" == "0" ]]; then echo "No LXBatch jobs running nor pending"; fi;
 

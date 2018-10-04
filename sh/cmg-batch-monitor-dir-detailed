@@ -35,20 +35,27 @@ while true; do clear;
     echo -n "   Total:   "; cat $Metadata/all_chunks |  wc -l
     sed 's/_Chunk[0-9]\+//g' $Metadata/all_chunks | sort | uniq > $Metadata/all_samples
     echo "   ---"
-    echo -e "ALL\tRUN\tFAIL\tGOOD\tACTION\tSAMPLE"
+    echo -e "ALL\tRUN\tFAIL\tGOOD\t [%]\tACTION\tSAMPLE"
     for S in $(cat $Metadata/all_samples); do
         ALL=$(grep -c ${S}_Chunk $Metadata/all_chunks)
         RUN=$(cat $Metadata/running | grep -c ${S}_Chunk)
         FAIL=$(grep -v running $Metadata/to_resub | cat - $Metadata/to_retry_sub | sort | uniq | grep -c ${S}_Chunk)
-        GOOD=$(( $ALL - $RUN - $FAIL ))
+        GOOD=$(( $ALL - $RUN - $FAIL ));
+        if [[ "$ALL" != "0" ]]; then
+            PERCENT="$(( $GOOD * 100 / $ALL ))%";
+        else
+            PERCENT="     ";
+        fi;
         (( $GOOD == $ALL )) && STATUS="done" 
         (( $RUN > 0 )) && STATUS="wait" 
         (( $FAIL > 0 )) && STATUS="CHECK"
-        echo -e "$ALL\t$RUN\t$FAIL\t$GOOD\t$STATUS\t$(basename $S)"
+        echo -e "$ALL\t$RUN\t$FAIL\t$GOOD\t$PERCENT\t$STATUS\t$(basename $S)";
+        if test -d $Dir/done && [[ "$STATUS" == "done" ]]; then echo "mv ${S}_Chunk* $Dir/done/"; fi;
     done
     echo
   done;
   echo;
+  condor_q | tail -n 1;
   ~/sh/lsfstat; 
   echo; 
   fs listq ~ ~/w

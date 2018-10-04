@@ -46,7 +46,7 @@ function igm {
  POSTFIX=${POSTFIX:-tmp}
  BASE=$(echo $CFG | sed -s 's#\.\(cfg\|cfg\.py\|py\)$##');
  igprof -d -t cmsRun -mp -z -o igmem-$BASE.out.gz.$POSTFIX cmsRun $* 2>&1 | tee igmem-$BASE.log.$POSTFIX
- igprof-analyse -g -d -v -p -r MEM_TOTAL -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.mem-tot.sqlite.$POSTFIX
+ #igprof-analyse -g -d -v -p -r MEM_TOTAL -s igmem-$BASE.out.gz.$POSTFIX | sqlite3 igmem-$BASE.mem-tot.sqlite.$POSTFIX
  echo "Dump saved in igmem-$BASE.out.gz.$POSTFIX. SQLite file for MEM_TOTAL saved in igmem-$BASE.mem-tot.sqlite.$POSTFIX" 1>&2; 
 }
 function igml {
