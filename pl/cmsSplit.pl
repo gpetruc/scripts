@@ -8,13 +8,14 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$skipfiles,$json,$jsonfilter,$fnal,$AAA,$T0,$addparents,$randomize);
-my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob,$evperfile);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$maxevents,$skipfiles,$json,$jsonfilter,$fnal,$AAA,$T0,$addparents,$randomize);
+my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob,$evperfile,$eosoutdir);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
 my $maxsyncjobs = 99;
 my $subprocesses = 0;
 my $firstlumiblock = 1;
+my $condormem = 2000;
 my @job2run;
 my @job2evts;
 
@@ -46,6 +47,7 @@ GetOptions(
     'help|h|?'=>\$help,
     'customize|c=s'=>\$customize,
     'inline-customize=s'=>\$inlinecustomize,
+    'maxevents=i'=>\$maxevents,
     'maxfiles=i'=>\$maxfiles,
     'skipfiles=i'=>\$skipfiles,
     'subprocess=i'=>\$subprocesses,
@@ -55,7 +57,9 @@ GetOptions(
     'T0'=>\$T0,
     'add-parents'=>\$addparents,
     'randomize'=>\$randomize,
-    'first-lumi-block|flb=i'=>\$firstlumiblock
+    'first-lumi-block|flb=i'=>\$firstlumiblock,
+    'eosoutdir=s'=>\$eosoutdir,
+    'condor-memory=s'=>\$condormem
 );
 
 sub usage() {
@@ -121,6 +125,7 @@ options:
   --AAA:  use cern global xrootd redirector
   --T0:  use direct access to Tier0
   --nomerge:  don't merge the outputs
+  --eosoutdir: EOS directory to store the jobs output files
 EOF
 }
 
@@ -193,10 +198,12 @@ close PYTHONFILEINFO;
 my @files = ();
 if (defined($dbsql)) {
     print "Using input files from DBS Query $dbsql\n" if $verbose;
-    @files = grep(m/\/store.*.root/, qx(das_client.py --query='$dbsql' --limit 999999));
+    $maxfiles = 999999 unless defined($maxfiles);
+    @files = grep(m/\/store.*.root/, qx(dasgoclient --query='$dbsql' --limit $maxfiles));
 } elsif (defined($dataset)) {
-    print "Using input files from DBS Query for dataset $dataset at site *cern*\n" if $verbose;
-    @files = grep(m/\/store.*.root/, qx(das_client.py --limit 10000 --query='file dataset=$dataset'));
+    print "Using input files from DBS Query for dataset $dataset \n" if $verbose;
+    $maxfiles = 999999 unless defined($maxfiles);
+    @files = grep(m/\/store.*.root/, qx(dasgoclient --limit $maxfiles --query='file dataset=$dataset'));
 } elsif (defined($filelist)) {
     print "Using input files from file $filelist\n" if $verbose;
     open FILELIST, "$filelist" or die "Can't read file list $filelist\n";
@@ -221,13 +228,14 @@ if (defined($dbsql)) {
         }
         @files = ();
         print "$stdir\n";
-        foreach my $line (qx(/afs/cern.ch/project/eos/installation/cms/bin/eos.select ls $stdir)) {
+        foreach my $line (qx(eos ls $stdir)) {
             my ($thisfile) = ($line =~ m/(\S+\.root)/) or next;
             if (basename($thisfile) =~ m{$stglob}) {
                 push @files, "$stdir/$thisfile";
             }
         }
     } else {
+        if (-d $filedir) { $filedir .= "/*.root"; }
         @files = map( "file:$_", glob($filedir) );
     }
 } else {
@@ -553,6 +561,8 @@ foreach my $j (1 .. $jobs) {
         if (defined($evperfilejob)) {
             $postamble .= "process.source.skipEvents = cms.untracked.uint32(".($job2evts[$j-1]->[0]).")\n";
             $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32(".($job2evts[$j-1]->[1])."))\n";
+        } elsif (defined($maxevents)) {
+            $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32($maxevents))\n";
         } else {
             $postamble .= "process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32(-1))\n";
         }
@@ -577,8 +587,9 @@ foreach my $j (1 .. $jobs) {
     foreach (@outputModules) {
         my ($n,$f) = @$_;
         $f =~ s/\.root$/$label ."_job$j.root"/e;
+        if ($jobs == 1) { $f =~ s/_job1//; }
         $postamble .= "$THEPROCESS.$n.fileName = '$f'\n";
-        unless($nomerge) {
+        unless($nomerge or ($jobs == 1)) {
             push @{$mergeList{$n}->{'infiles'}}, $f;
             push @cleanup, $f;
         }
@@ -586,8 +597,9 @@ foreach my $j (1 .. $jobs) {
     if ($tfsFile) {
         my $f = $tfsFile; 
         $f =~ s/\.root$/$label ."_job$j.root"/e;
+        if ($jobs == 1) { $f =~ s/_job1//; }
         $postamble .= "$THEPROCESS.TFileService.fileName = '$f'\n";
-        unless($nomerge) {
+        unless($nomerge or ($jobs == 1)) {
             push @tfsMerge, $f;
             push @cleanup, $f;
         }
@@ -722,6 +734,7 @@ EOF
     }
 
     print OUT <<EOF;
+sleep 10;
 while ps x | grep -q "cmsRun $jgrep"; do
     clear;
     echo "At \$(date), jobs are still running...";
@@ -752,15 +765,66 @@ EOF
 
 ## make lsf driver scripts
 if ($lsf and not($pretend)) {
+    if (defined($eosoutdir)) {
+        die "Bad EOS path $eosoutdir\n" unless ($eosoutdir =~ m{/eos/cms/store/.*});
+        system("mkdir -p $eosoutdir") unless (-d $eosoutdir);
+        die "Path $eosoutdir doesn't exist and can't be created" unless (-d $eosoutdir);
+    }
+
     my $pyfile = $basename . $label . "_bsub.sh";
-    print "Will create bash driver script  source $pyfile\n" if $verbose;
+    if ($lsf =~ m/condor.*/) {
+        print "Condor!\n";
+        $pyfile = $basename . $label . "_condor.sub";
+        print "Will create condor submit file $pyfile\n" if $verbose;
+        die "Malformed --lsf condor option, it should be just 'condor' or 'condor-(number)[n](unit)', with unit = m|h|d|w." unless ($lsf =~ m/condor(-(\d+)n?([mhdw]))?/);
+    } else {
+        print "Will create bash driver script source $pyfile\n" if $verbose;
+    }
     next if $pretend;
     open OUT, "> $pyfile" or die "Can't write to $pyfile\n"; push @cleanup, $pyfile;
-    print OUT "#!/bin/sh\n";
-    foreach my $j (1 .. $jobs) {
-        my $jfile = $basename . $label . "_job$j.py";
-        my $lfile = $basename . $label . "_job$j.log";
-        print OUT "~/sh/cmsBSub -$lsf $jfile\n"; push @cleanup, "$lfile.[0-9]*";
+    if ($lsf =~ m/condor(-(\d+)n?([mhdw]))?/) {
+        my ($numtime, $timeunit) = ("8", "h");
+        if ($1) { $numtime = $2; $timeunit = $3 };
+        my $time = $numtime;
+        if ($timeunit eq "m")    { $time *= 60; }
+        elsif ($timeunit eq "h") { $time *= 60*60; }
+        elsif ($timeunit eq "d") { $time *= 60*60*24; }
+        elsif ($timeunit eq "w") { $time *= 60*60*24*7; }
+        else { die "Not understood job time: $2$3\n"; }
+        my $runner = "/afs/cern.ch/user/g/gpetrucc/sh/cmsRunBatchAFS";
+        my $args = `pwd`; chomp($args);
+        if (defined($eosoutdir)) {
+            $runner = "/afs/cern.ch/user/g/gpetrucc/sh/cmsRunBatchEOS";
+            $args .= "  $eosoutdir";
+        }
+print OUT <<EOF;
+Universe = vanilla
+Executable = $runner 
+use_x509userproxy = \$ENV(X509_USER_PROXY)
+
+IJob = \$(Step)+1
+Log        = ${basename}${label}_job\$(IJob).condor
+Output     = ${basename}${label}_job\$(IJob).out
+Error      = ${basename}${label}_job\$(IJob).error
+getenv      = True
+request_memory = $condormem
+
++MaxRuntime = $time
+
+Arguments = $args ${basename}${label}_job\$(IJob).py
+Queue $jobs
+EOF
+    } else {
+        print OUT "#!/bin/sh\n";
+        foreach my $j (1 .. $jobs) {
+            my $jfile = $basename . $label . "_job$j.py";
+            my $lfile = $basename . $label . "_job$j.log";
+            if (defined($eosoutdir)) {
+                print OUT "~/sh/cmsBSubEOS -$lsf $eosoutdir $jfile\n"; push @cleanup, "$lfile.[0-9]*";
+            } else {
+                print OUT "~/sh/cmsBSubAFS -$lsf $jfile\n"; push @cleanup, "$lfile.[0-9]*";
+            }
+        }
     }
     close OUT;
     chmod 0755, $pyfile;
