@@ -802,18 +802,19 @@ Universe = vanilla
 Executable = $runner 
 use_x509userproxy = \$ENV(X509_USER_PROXY)
 
-IJob = \$(Step)+1
-Log        = ${basename}${label}_job\$(IJob).condor
-Output     = ${basename}${label}_job\$(IJob).out
-Error      = ${basename}${label}_job\$(IJob).error
+Log        = ${basename}${label}_\$(Job).condor
+Output     = ${basename}${label}_\$(Job).out
+Error      = ${basename}${label}_\$(Job).error
 getenv      = True
 request_memory = $condormem
-
+transfer_output_files = ""
 +MaxRuntime = $time
 
-Arguments = $args ${basename}${label}_job\$(IJob).py
-Queue $jobs
+Arguments = $args ${basename}${label}_\$(Job).py
+Queue Job from (
 EOF
+        foreach my $j (1 .. $jobs) { print OUT "   job$j\n"; }
+        print OUT ")\n"
     } else {
         print OUT "#!/bin/sh\n";
         foreach my $j (1 .. $jobs) {
