@@ -13,6 +13,7 @@ my $miniAOD;
 my $nanoAOD;
 my $bare;
 my $uniq;
+my $skipBad;
 
 GetOptions(
     'o|out|output=s'=>\$out,
@@ -24,6 +25,7 @@ GetOptions(
     'N|nanoAOD'=>\$nanoAOD,
     'b|bare'=>\$bare,
     'u|uniq'=>\$uniq,
+    'skipBad'=>\$skipBad,
     'help|h|?'=>\$help,
 );
 
@@ -73,7 +75,10 @@ if (defined($bare)) {
 }
 
 my $outputModule = "PoolOutputModule";
-if (defined($nanoAOD))  $outputModule = "NanoAODOutputModule";
+if (defined($nanoAOD)) { $outputModule = "NanoAODOutputModule"; }
+
+my $skipBadValue = "False";
+if (defined($skipBad)) { $skipBadValue = "True" };
 
 print <<EOF;
 import FWCore.ParameterSet.Config as cms
@@ -84,7 +89,7 @@ process.options   = cms.untracked.PSet( wantSummary = cms.untracked.bool(True) )
 process.MessageLogger.cerr.FwkReport.reportEvery = 1000
 process.maxEvents = cms.untracked.PSet(input = cms.untracked.int32($maxev))
 
-process.source = cms.Source("PoolSource", fileNames = cms.untracked.vstring(), skipBadFiles = cms.untracked.bool(False))
+process.source = cms.Source("PoolSource", fileNames = cms.untracked.vstring(), skipBadFiles = cms.untracked.bool($skipBadValue))
 process.source.fileNames = [\n$in]
 
 process.out = cms.OutputModule("$outputModule",fileName = cms.untracked.string('$out'))
@@ -169,7 +174,7 @@ EOF
 }
 if (defined($nanoAOD)) {
     print <<EOF;
-process.out.compressionLevel = cms.untracked.int(9)
+process.out.compressionLevel = cms.untracked.int32(9)
 process.out.compressionAlgorithm = cms.untracked.string("LZMA")
 EOF
 }
