@@ -15,10 +15,10 @@
     td.tot { font-weight: bold; }
     td.img { text-align: left; }
     td.dataset { text-align: left; }
-    span.done { background-color: rgb(200,200,255); }
-    span.almostdone { background-color: rgb(200,255,200); }
-    span.ongoing { background-color: rgb(200,200,200); }
-    span.started { background-color: rgb(200,255,255); }
+    span.done { background-color: rgb(204,235,255); }
+    span.almostdone { background-color: rgb(180,255,180); }
+    span.ongoing { background-color: rgb(232,246,188); }
+    span.started { background-color: rgb(255,224,180); }
     span.bad { background-color: rgb(255,200,200); }
 </style>
 <script type="text/javascript">
@@ -75,9 +75,9 @@ function filterdata() {
     }
     return ret;
 }
-function daslink(dataset,text) {
+function daslink(dataset,text,hover) {
     var query = "https://cmsweb.cern.ch/das/request?input=dataset%3D" + encodeURI(dataset)+"&instance=prod%2Fglobal";
-    return "<a href=\""+query+"\">" + text + "</a>";
+    return "<a href=\""+query+"\" title=\""+hover+"\">" + text + "</a>";
 }
 function mcmpreplink(prepid,text,hover) {
     var query = "https://cms-pdmv.cern.ch/mcm/requests?prepid="+encodeURI(prepid)+"&page=0&shown=275414779961";
@@ -94,9 +94,8 @@ function evnum(num) {
             return Number(num/1000.).toFixed(1)+"k";
         }
     } else {
-        if (num % 1000000 == 0 && num >= 100000000) return Number(num/1.0e6)+"M";
-        if (num % 100000 == 0 && num >= 10000000) return Number(num/1.0e6).toFixed(1)+"M";
-        return Number(num/1.0e6).toFixed(2)+"M";
+        if (num >= 10*1000*10000) return Number(num/1.0e6).toFixed(0)+"M";
+        return Number(num/1.0e6).toFixed(1)+"M";
     }
 }
 function mcstatus(prepid, mcmitem, maxev, showpd) {
@@ -111,14 +110,14 @@ function mcstatus(prepid, mcmitem, maxev, showpd) {
    if (showpd) {
        if (mcmitem.outputs.length > 0) {
            var outds = mcmitem.outputs[0];
-           ret += "<td class=\"out\"><nobr>"+ daslink(outds, middlename(outds)) + "</nobr></td>";
+           ret += "<td class=\"out\"><nobr>"+ daslink(outds, middlename(outds), "Link to DAS") + "</nobr></td>";
        } else {
            ret += "<td class=\"out\">&nbsp;</td>";
        }
    }
    ret += "<td class=\"num\">";
    if (mcmitem.evts[1] > 0) { 
-       ret += daslink(mcmitem.outputs[0], evnum(mcmitem.evts[1])); // + " / "+evnum(mcmitem.evts[0]));
+       ret += daslink(mcmitem.outputs[0], evnum(mcmitem.evts[1]), Number(mcmitem.evts[1]/mcmitem.evts[0]*100).toFixed(1)+"% (Link to DAS)"); // + " / "+evnum(mcmitem.evts[0]));
    } else {
        ret += "&ndash;";//evnum(Math.max(0,mcmitem.evts[1])); // + " / "+evnum(mcmitem.evts[0]);
    }
@@ -145,7 +144,7 @@ function update() {
     }
     ret += "</tr>";
     for (var i = 0; i < sorted.length; ++i) {
-        ret += "<tr><td class=\"dataset\">"+sorted[i].pd+(sorted[i].ext ? " ext"+sorted[i].ext : "")+"</td>";
+        ret += "<tr><td class=\"dataset\"><nobr>"+sorted[i].pd+(sorted[i].ext ? " ext"+sorted[i].ext : "")+"</nobr></td>";
         var row = sorted[i].row;
         var maxev = requests[row[0]].evts[0];
         ret += "<td class=\"num\">"+evnum(maxev)+"</td>";
