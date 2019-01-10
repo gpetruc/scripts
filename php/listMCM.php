@@ -136,7 +136,7 @@ function update() {
     document.getElementById("total").innerHTML = "<tr><td>Rendering....</td></tr>";
     document.title = "McM Summary (" + lastupdate + ")";
     document.getElementById("toptitle").innerHTML = "McM Summary (last update: " + lastupdate + ")";
-    document.getElementById("extra").innerHTML = "Monitored campaigns: "+Array.join(campaigns, ", ")+"; data tiers: "+Array.join(alltiers, ", ");
+    document.getElementById("extra").innerHTML = "Monitored campaigns: "+campaigns.join(", ")+"; data tiers: "+alltiers.join(", ");
     sorted = filterdata();
     var ret = "<tr><th>Dataset</th><th>Events</th>";
     for (var i = 0; i < tiers.length; ++i) {
