@@ -1,7 +1,9 @@
 import re
-import os, sys, json
+import os, sys
+import simplejson as json # faster, at least in 2.7
 from fnmatch import fnmatch
-from time import strftime, strptime, localtime
+from time import strftime, strptime, localtime, sleep
+from datetime import datetime
 from collections import defaultdict
 
 class ObjFromDict:
@@ -24,6 +26,7 @@ class Sample(ObjFromDict):
         if self.input() and self.outputs():
             input_tier = self.input().split("/")[-1]
             for req in self.reqmgr_name:
+                if 'pdmv_dataset_list' not in req['content']: continue
                 if self.outputs() and not any(o in req['content']['pdmv_dataset_list'] for o in self.outputs()):
                     continue
                 for dataset in req['content']["pdmv_dataset_list"]:
@@ -62,7 +65,7 @@ class Sample(ObjFromDict):
     def evts(self):
         return self.total_events, self.completed_events
     def short(self):
-        return self.pdkey(), self.prep(), self.io(), self.stat(), self.evts()
+        return self.prep(), self.pdkey(), self.io(), self.stat(), self.evts()
     def __str__(self):
         return "=== %s ===\n%s\n%s\n" % (self.prep(), self.short(), repr(self))
     def dprint(self, indent=0):
@@ -81,11 +84,19 @@ class Sample(ObjFromDict):
 
 from optparse import OptionParser
 parser = OptionParser(usage=r"""usage: %prog [options]  """)
-parser.add_option("-C", "--cache", dest="noCache", action="store_false", default=True, help="Use cached results if available")
-parser.add_option("-t", "--tiers", dest="datatiers", default="GEN-SIM,AODSIM,MINIAODSIM,NANOAODSIM", type="string", help="Data tiers to use")
+parser.add_option("-a", "--ancestry", dest="ancestry", action="store_true", default=False, help="Include also ancestor campaigns as defined by McM flows")
+parser.add_option("-F", "--no-cache", dest="noCache", action="store_true", default=False, help="Use cached results if available")
+parser.add_option("-C", "--cache", dest="forceCache", action="store_true", default=False, help="Use cached results if available")
+parser.add_option("-t", "--tiers", dest="datatiers", default="LHE,GEN-SIM,AODSIM,MINIAODSIM,NANOAODSIM", type="string", help="Data tiers to use")
 parser.add_option("-o", "--out", dest="out", default="MCMSummary.json", type="string", help="Output file")
+parser.add_option("-x", "--exclude", dest="exclude", default=[], action="append", type="string", help="Campaigns to exclude")
 parser.add_option("-d", "--dataset", dest="dataset", default=None, type="string", help="Dataset name")
 parser.add_option("-D", "--debug", dest="debug", action="store_true", default=False, help="Make new cookie")
+parser.add_option("-T", "--cache-time", dest="cacheTime", default=60, type="int", help="Cache time in minutes for McM queries (cookies always have 1h life)")
+parser.add_option("-r", "--retries", dest="retries", default=2, type="int", help="Retry this number of times")
+parser.add_option("--sleep-before-retry", dest="retrySleep", default=15, type="int", help="Seconds to sleep before retrying")
+parser.add_option("-p", "--paginated", dest="paginatedQuery", default=0, type="int", help="Make a paginated query with this number of rows per step")
+parser.add_option("-n", "--pretend", dest="pretend", default=False, action="store_true", help="Only list the campaigns that would be considered")
 (options, args) = parser.parse_args()
 
 if len(args) == 0:
@@ -93,31 +104,117 @@ if len(args) == 0:
     print "example: listMCM.py -o MCMSummary-Autumn18.json ] \"RunIIAutumn18*\" \"RunIIFall18*GS\" " 
     sys.exit()
 
+def fileAge(fname):
+    diff = datetime.now() - datetime.fromtimestamp(os.path.getmtime(fname))
+    return diff.days*24*3600 + diff.seconds
+def goodFile(fname):
+    if fname.endswith(".json"):
+        try:
+            x = json.load(open(fname))
+            if 'results' in x:
+                if len(x['results']) == 0:
+                    print "Empty JSON file "+fname+" (probably an error from McM)"
+                    return False
+            elif 'rows' in x:
+                if len(x['rows']) == 0:
+                    print "Empty JSON file "+fname+" (probably an error from McM)"
+                    return False
+        except:
+            print "Corrupt JSON file "+fname
+            return False
+    return True
+
+def cachedCmd(text, command, fname, cachetime = 0):
+    goodcache = os.path.exists(fname) and fileAge(fname) < 60*(cachetime if cachetime else options.cacheTime) and goodFile(fname)
+    if (options.noCache or not goodcache) and not options.forceCache:
+        print text
+        for retry in xrange(options.retries+1):
+            print '$ '+command
+            try:
+                os.system(command)
+                if (os.path.exists(fname) and goodFile(fname)):
+                    return True
+            except:
+                pass
+            print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
+            sleep(options.retrySleep)
+def paginatedQuery(campaign, query, cachetime = 0, limit=500):
+    fname = 'McM-%s.json' % campaign
+    goodcache = os.path.exists(fname) and fileAge(fname) < 60*(cachetime if cachetime else options.cacheTime)
+    if options.forceCache or (goodcache and not options.noCache):
+        try:
+            data = json.load(open(fname,'r'))
+            if 'results' in data and len(data['results']) >= 0:
+                return data['results']
+        except:
+            pass
+    print "Paginated query to McM for campaign %s (%d rows at a time)" % (cname, limit)
+    results = []; page = 0; pagname = 'McM-%s-paged.json' % campaign
+    while page != -1:
+        if os.path.exists(pagname): os.unlink(pagname)
+        url = "https://cms-pdmv.cern.ch/mcm/search/?db_name=requests&page=%d&limit=%d&%s&get_raw" % (page, limit, query)
+        for retry in xrange(options.retries+2):
+            print '$   curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "%s" > %s' % (url,pagname)
+            os.system('curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "%s" > %s' % (url,pagname))
+            if os.path.exists(pagname):
+                try:
+                    data = json.load(open(pagname,'r'))
+                    if 'total_rows' in data:
+                        results += [ _['doc'] for _ in data['rows'] ]
+                        print "   .... now at %d/%d " % (len(results), data['total_rows'])
+                        if len(results) >= data['total_rows']:
+                            page = -1
+                        else:
+                            page = page + 1
+                        break
+                except:
+                    pass
+            print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
+            sleep(options.retrySleep)
+    json.dump({'results':results}, open(fname, 'w'))
+    return results
+                
 # == INIT DATA TIERS ==
 TIERs = options.datatiers.split(",")
-TIERMAP = dict([ ("LHE",["LHE"]), ("GEN-SIM",["GS"]), ("AODSIM",["DR"]), ("MINIAODSIM",["MiniAOD"]), ("NANOAODSIM",["NanoAOD"]) ])
+TIERMAP = dict([ ("LHE",["LHE"]), ("GEN-SIM",["GS"]), ("AODSIM",["DR","FS"]), ("MINIAODSIM",["MiniAOD"]), ("NANOAODSIM",["NanoAOD"]) ])
 
 # == INIT SSO COOKIE ==
-if options.noCache:
-    print "Get new SSO cookie for McM into $HOME/private/mcm-prod-cookie.txt"
-    os.system("cern-get-sso-cookie -u https://cms-pdmv.cern.ch/mcm/ -o $HOME/private/mcm-prod-cookie.txt --krb --reprocess")
+cachedCmd( "Get new SSO cookie for McM into $HOME/private/mcm-prod-cookie.txt",
+           "cern-get-sso-cookie -u https://cms-pdmv.cern.ch/mcm/ -o $HOME/private/mcm-prod-cookie.txt --krb --reprocess",
+           os.path.expandvars("$HOME/private/mcm-prod-cookie.txt"), cachetime = 60)
 
 # == INIT CAMPAIGNS ==
-if options.noCache:
-    print "Query to McM for list of all campaign names"
-    os.system('curl -k --cookie $HOME/private/mcm-prod-cookie.txt "https://cms-pdmv.cern.ch/mcm/search/?db_name=campaigns&page=-1" > McM-campaigns.json')
-ALLCNs = [c['prepid'] for c in json.load(open('McM-campaigns.json'))['results']]
+cachedCmd( "Query to McM for list of all campaign names",
+           'curl -k --cookie $HOME/private/mcm-prod-cookie.txt "https://cms-pdmv.cern.ch/mcm/search/?db_name=campaigns&page=-1" > McM-campaigns.json',
+           'McM-campaigns.json')
+
+CAMPAIGNs = [c for c in json.load(open('McM-campaigns.json'))['results']]
+ALLCNs = [c['prepid'] for c in CAMPAIGNs]
 
 CNs = []
 for a in args:
     CNs += [ c for c in ALLCNs if fnmatch(c,a) ]
 CNs = sorted(set(CNs))
+if options.ancestry:
+    def parents(cn):
+        return [c['prepid'] for c in CAMPAIGNs if cn in c['next']]
+    def ancestry(cns):
+        ret = set()
+        for cn in cns:
+            ret.add(cn)
+            for cn2 in ancestry(parents(cn)):
+                ret.add(cn2)
+        return ret
+    CNs = sorted(ancestry(CNs))
+if options.exclude:
+    CNs = [ c for c in CNs if not any(fnmatch(c,e) for e in options.exclude) ]
 
 if len(CNs) == 0:
     print "No campaigns selected. Aborting."
     sys.exit(1)
 else:
     print "Will load the following campaigns: %s " % (", ".join(CNs))
+    if options.pretend: sys.exit(0)
 
 # == LOAD CAMPAIGNS ==
 BYPREP = {}
@@ -126,14 +223,20 @@ BYCHAIN = defaultdict(list)
 
 for cname in CNs:
     # query
-    if options.noCache or not os.path.exists('McM-%s.json' % cname):
-        query = "member_of_campaign="+cname
-        if options.dataset: 
-            query += "&dataset_name="+options.dataset
-        print "Query to McM for campaign "+cname
-        os.system('curl -k --cookie $HOME/private/mcm-prod-cookie.txt "https://cms-pdmv.cern.ch/mcm/search/?db_name=requests&page=-1&%s" > McM-%s.json' % (query,cname))
-    # parse
-    requests = json.load(open('McM-%s.json' % cname, 'r'))['results']
+    query = "member_of_campaign="+cname
+    if options.dataset: 
+        query += "&dataset_name="+options.dataset
+    if options.paginatedQuery > 0:
+        requests = paginatedQuery(cname, query, limit=options.paginatedQuery)
+    else:
+        cachedCmd("Query to McM for campaign " + cname,
+                  'curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "https://cms-pdmv.cern.ch/mcm/search/?db_name=requests&page=-1&%s" > McM-%s.json' % (query,cname),
+                  'McM-%s.json' % cname)
+        data = json.load(open('McM-%s.json' % cname, 'r'))
+        if 'results' in data:
+            requests = data['results']
+        else:
+            requests = [ _['doc'] for _ in data['rows'] ]
     if not requests: 
         print "No results found for %s" % cname
         continue
@@ -151,11 +254,18 @@ for cname in CNs:
         BYPREP[req.prep()] = req
         for ds in req.outputs():
             if ds in BYOUTPUT:
-                print "ATTENTION: duplicate requests producing %s:\n%s%s" % (ds, req, BYOUTPUT[ds])
-            BYOUTPUT[ds] = req
-        if req.member_of_chain and len(req.member_of_chain) == 1:
-            if (req.flown_with if req.flown_with else req.member_of_campaign) in req.member_of_chain[0]:
-                BYCHAIN[req.member_of_chain[0]].append(req)
+                print "ATTENTION: duplicate requests producing %s:" % (ds)
+                print req.short()
+                print BYOUTPUT[ds].short()
+                if req.status not in ("done", "submitted") and BYOUTPUT[ds].status in ("done", "submitted"):
+                    print "Preferring %s (better status)" % BYOUTPUT[ds].prep()
+                elif int(req.prep().split("-")[2]) < int(BYOUTPUT[ds].prep().split("-")[2]):
+                    print "Preferring %s (higher id)" % BYOUTPUT[ds].prep()
+                else:
+                    BYOUTPUT[ds] = req
+        for chain in req.member_of_chain:
+            if (req.flown_with if req.flown_with else req.member_of_campaign) in chain:
+                BYCHAIN[chain].append(req)
 
 print "I have %d total requests in %d campaigns, producing %d datasets" % (len(BYPREP), len(CNs), len(BYOUTPUT))
 
