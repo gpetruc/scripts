@@ -1,0 +1,10 @@
+#!/bin/bash
+while true; do
+clear; 
+python listMCM.py -o ~/public_html/drop/MCMSummary-Autumn18.json "RunIIAutumn18*" "RunIIFall18*GS" "RunIIFall18*LHE*"
+python listMCM.py -o ~/public_html/drop/MCMSummary-Fall17.json "RunIIFall17DR*" "RunIIFall17FS*" RunIIFall17GS RunIIFall17MiniAODv2 RunIIFall17NanoAOD RunIIFall17NanoAODv4 RunIIFall17pLHE RunIIFall17wmLHEGS  -T 240 -p 1000
+python listMCM.py -o ~/public_html/drop/MCMSummary-Summer16.json -a "RunIISummer16*" -x Summer16Geant4102 -T 240 -p 1000
+uptime
+echo "Sleep"
+sleep 120m || break;
+done

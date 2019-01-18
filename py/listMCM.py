@@ -213,7 +213,7 @@ if len(CNs) == 0:
     print "No campaigns selected. Aborting."
     sys.exit(1)
 else:
-    print "Will load the following campaigns: %s " % (", ".join(CNs))
+    print "Will load the following campaigns: %s " % (" ".join(CNs))
     if options.pretend: sys.exit(0)
 
 # == LOAD CAMPAIGNS ==
