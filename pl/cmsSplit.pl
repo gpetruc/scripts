@@ -168,7 +168,7 @@ class EPVisitor:
         global cmsSplit_output_file
         #print "Visiting type ",type(visitee),": ",visitee
         if type(visitee) == cms.OutputModule:
-            cmsSplit_output_file.write("OUT\\t\%s\t\%s\\n" % (visitee.label_(), visitee.fileName.value()));
+            cmsSplit_output_file.write("OUT\\t\%s\\t\%s\\t\%s\\n" % (visitee.label_(), visitee.fileName.value(), visitee.type_()));
     def leave(self,visitee): 
         pass
 
@@ -184,7 +184,7 @@ else:
 
 ## TFileService
 if hasattr(process,"TFileService") and type($THEPROCESS.TFileService) == cms.Service: 
-    cmsSplit_output_file.write("TFS\t"+$THEPROCESS.TFileService.fileName.value()+"\\tX\\n")
+    cmsSplit_output_file.write("TFS\t"+$THEPROCESS.TFileService.fileName.value()+"\\tX\\tX\\n")
 
 cmsSplit_output_file.close()
 EOF
@@ -286,26 +286,37 @@ print "List of files: \n\t" . join("\n\t", @files, '') . "\n" if $verbose > 1;
 #===============================================================
 # pool output module
 my @outputModules = ();
+my @nanoModules = ();
 my %mergeList = ();
+my %mergeNano = ();
 foreach (@pythonFileInfo) {
     chomp;
     #print STDERR "[[$_]]\n";
-    my ($type,$module,$file) = split(/\s+/) or next;
+    my ($type,$module,$file,$otype) = split(/\s+/) or next;
     next unless $type eq "OUT";
     #$file =~ s/\.root$/$label.root/;
-    push @outputModules, [$module,$file];
-    print "Found enabled output module $module producing $file\n" if $verbose > 0;
     my $ofile = $file; $ofile =~ s/\.root$/$label.".root"/e;
-    unless ($nomerge) {
-        $mergeList{$module} = {'outfile'=>$ofile, 'infiles'=>[]};
+    if ($otype eq "NanoAODOutputModule") {
+        push @nanoModules, [$module,$file];
+        print "Found enabled $otype (NANO) output module $module producing $file\n" if $verbose > 0;
+        unless ($nomerge) {
+            $mergeNano{$module} = {'outfile'=>$ofile, 'infiles'=>[]};
+        }
+    } else {
+        push @outputModules, [$module,$file];
+        print "Found enabled output $otype (EDM) module $module producing $file\n" if $verbose > 0;
+        unless ($nomerge) {
+            $mergeList{$module} = {'outfile'=>$ofile, 'infiles'=>[]};
+        }
     }
 }
+
 
 #===============================================================
 # TFileService
 my $tfsFile;
 foreach (@pythonFileInfo) { 
-    my ($what,$arg,$arg2) = split(/\s+/,$_); 
+    my ($what,$arg,$arg2,$arg3) = split(/\s+/,$_); 
     if ($what eq "TFS") { 
         $tfsFile = $arg;
         print "Must handle TFileService producing $tfsFile\n" if $verbose > 0;
@@ -594,6 +605,16 @@ foreach my $j (1 .. $jobs) {
             push @cleanup, $f;
         }
     }
+    foreach (@nanoModules) {
+        my ($n,$f) = @$_;
+        $f =~ s/\.root$/$label ."_job$j.root"/e;
+        if ($jobs == 1) { $f =~ s/_job1//; }
+        $postamble .= "$THEPROCESS.$n.fileName = '$f'\n";
+        unless($nomerge or ($jobs == 1)) {
+            push @{$mergeNano{$n}->{'infiles'}}, $f;
+            push @cleanup, $f;
+        }
+    }
     if ($tfsFile) {
         my $f = $tfsFile; 
         $f =~ s/\.root$/$label ."_job$j.root"/e;
@@ -660,6 +681,29 @@ process.end = cms.EndPath(process.out)
 EOF
     close OUT;
 }
+
+## make merge jobs
+foreach my $m (sort(keys(%mergeNano))) {
+    my $pyfile = $basename . $label . "_merge_$m.sh";
+    print "Will create merge job $m, source $pyfile\n" if $verbose;
+    print "Merge output file ",$mergeNano{$m}->{'outfile'}," from:\n\t",join("\n\t",@{$mergeNano{$m}->{'infiles'}},''),"\n" if $verbose > 1;
+    next if $pretend;
+    open OUT, "> $pyfile" or die "Can't write to $pyfile\n";  push @cleanup, $pyfile;
+    my $out = $mergeNano{$m}->{'outfile'};
+    my $in  = join(" ",@{$mergeNano{$m}->{'infiles'}});
+    print OUT <<EOF;
+#!/bin/bash
+if which haddnano.py > /dev/null 2>&1; then 
+    MERGE="haddnano.py"; 
+else 
+    MERGE="hadd"; 
+    echo "WARNING: haddnano.py not available."; 
+fi
+\$MERGE -f $out $in
+EOF
+    close OUT;
+}
+
 
 ## make TFileSerivce merge script
 if ($tfsFile and not($nomerge)) {
@@ -751,6 +795,11 @@ EOF
             my $mfile = $basename . $label . "_merge_$m.py";
             my $mlog  = $basename . $label . "_merge_$m.log";
             print OUT "cmsRun $mfile >  $mlog 2>&1;\n"; push @cleanup, $mlog;
+        }
+        foreach my $m (sort(keys(%mergeNano))) {
+            my $mfile = $basename . $label . "_merge_$m.sh";
+            my $mlog  = $basename . $label . "_merge_$m.log";
+            print OUT "bash $mfile >  $mlog 2>&1;\n"; push @cleanup, $mlog;
         }
         if ($tfsFile) {
             my $tfsfile = $basename . $label . "_merge_TFileService.sh";
