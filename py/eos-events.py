@@ -28,6 +28,7 @@ def _run(files):
                 record[T] = tree.GetEntries() if tree else 0
             ret.append( record )
             tfile.Close()
+            if options.warn and record["Events"] == 0: sys.stderr.write("Empty file /eos/cms%s: %s\n" % (lfn, record))
         except:
             if options.warn: sys.stderr.write("Error reading file /eos/cms"+lfn+"\n")
     return ret
@@ -53,20 +54,23 @@ for arg in args:
              continue
         if re.match(cpattern,filename):
             files.append(path+"/"+filename)
-            totsize += long(size)/2 # fuse returns twice the size
+            totsize += long(size) 
     if len(files) > 0:
         chunksize = options.chunks
         if len(files) < options.jobs * chunksize:
             chunksize = int(ceil(len(files)/float(options.jobs)))
         nchunks = int(ceil(len(files)/float(chunksize)))
         chunks = [ files[i:i+chunksize] for i in xrange(0,len(files),chunksize) ]
-        pool = multiprocessing.Pool(options.jobs)
-        ret = sum(pool.map(_run, chunks), [])
+        if options.jobs:
+            pool = multiprocessing.Pool(options.jobs)
+            ret = sum(pool.map(_run, chunks), [])
+        else:
+            ret = sum(map(_run, chunks), [])
         keys = [ "LuminosityBlocks","Events" ]
         tot = dict([ (k,sum(r[k] for r in ret)) for k in keys ])
     else:
         tot = { 'LuminosityBlocks':0, 'Events':0 }
-    print "%s\t%s\t%5d files, %6d lumis, %10d events, %8.3f Gb " % (path, pattern, len(files), tot['LuminosityBlocks'], tot['Events'], totsize/(1024.0**3))
+    print "%s\t%s\t%5d files, %6d lumis, %10d events, %8.3f Gb " % ("/eos/cms"+path, pattern, len(files), tot['LuminosityBlocks'], tot['Events'], totsize/(1024.0**3))
     
 
 
