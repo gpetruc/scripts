@@ -5,6 +5,7 @@ from fnmatch import fnmatch
 from time import strftime, strptime, localtime, sleep
 from datetime import datetime
 from collections import defaultdict
+from gzip import GzipFile
 
 class ObjFromDict:
     def __init__(self,j):
@@ -108,9 +109,9 @@ def fileAge(fname):
     diff = datetime.now() - datetime.fromtimestamp(os.path.getmtime(fname))
     return diff.days*24*3600 + diff.seconds
 def goodFile(fname):
-    if fname.endswith(".json"):
+    if fname.endswith(".json") or fname.endswith(".json.gz"):
         try:
-            x = json.load(open(fname))
+            x = json.load(GzipFile(fname) if fname.endswith(".gz") else open(fname))
             if 'results' in x:
                 if len(x['results']) == 0:
                     print "Empty JSON file "+fname+" (probably an error from McM)"
@@ -138,12 +139,14 @@ def cachedCmd(text, command, fname, cachetime = 0):
                 pass
             print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
             sleep(options.retrySleep)
-def paginatedQuery(campaign, query, cachetime = 0, limit=500):
+def paginatedQuery(campaign, query, cachetime = 0, limit=500, compress=True):
     fname = 'McM-%s.json' % campaign
+    if compress:
+        fname += ".gz"
     goodcache = os.path.exists(fname) and fileAge(fname) < 60*(cachetime if cachetime else options.cacheTime)
     if options.forceCache or (goodcache and not options.noCache):
         try:
-            data = json.load(open(fname,'r'))
+            data = json.load(GzipFile(fname,'r') if compress else open(fname,'r'))
             if 'results' in data and len(data['results']) >= 0:
                 return data['results']
         except:
@@ -162,6 +165,7 @@ def paginatedQuery(campaign, query, cachetime = 0, limit=500):
                     if 'total_rows' in data:
                         results += [ _['doc'] for _ in data['rows'] ]
                         print "   .... now at %d/%d " % (len(results), data['total_rows'])
+                        os.unlink(pagname)
                         if len(results) >= data['total_rows']:
                             page = -1
                         else:
@@ -171,7 +175,7 @@ def paginatedQuery(campaign, query, cachetime = 0, limit=500):
                     pass
             print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
             sleep(options.retrySleep)
-    json.dump({'results':results}, open(fname, 'w'))
+    json.dump({'results':results}, GzipFile(fname,'w') if compress else open(fname, 'w'))
     return results
                 
 # == INIT DATA TIERS ==
@@ -230,9 +234,9 @@ for cname in CNs:
         requests = paginatedQuery(cname, query, limit=options.paginatedQuery)
     else:
         cachedCmd("Query to McM for campaign " + cname,
-                  'curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "https://cms-pdmv.cern.ch/mcm/search/?db_name=requests&page=-1&%s" > McM-%s.json' % (query,cname),
-                  'McM-%s.json' % cname)
-        data = json.load(open('McM-%s.json' % cname, 'r'))
+                  'curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "https://cms-pdmv.cern.ch/mcm/search/?db_name=requests&page=-1&%s" | gzip > McM-%s.json.gz' % (query,cname),
+                  'McM-%s.json.gz' % cname)
+        data = json.load(GzipFile('McM-%s.json.gz' % cname, 'r'))
         if 'results' in data:
             requests = data['results']
         else:
