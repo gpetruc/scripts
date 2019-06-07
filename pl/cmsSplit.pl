@@ -8,7 +8,7 @@ use File::Basename;
 use Cwd;
 
 my $verbose = 1; my $label = ''; 
-my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$maxevents,$skipfiles,$json,$jsonfilter,$fnal,$AAA,$T0,$addparents,$randomize);
+my ($dataset,$dbsql,$filelist,$filedir,$castor,$filesperjob,$jobs,$pretend,$args,$evjob,$triangular,$customize,$inlinecustomize,$maxfiles,$maxevents,$skipfiles,$json,$jsonfilter,$fnal,$AAA,$T0,$addparents,$randomize,$cmst3);
 my ($bash,$lsf,$help,$byrun,$bysize,$nomerge,$evperfilejob,$evperfile,$eosoutdir);
 my $monitor="/afs/cern.ch/user/g/gpetrucc/pl/cmsTop.pl";#"wc -l";
 my $report= "/afs/cern.ch/user/g/gpetrucc/sh/report";   #"grep 'Events total'";
@@ -59,6 +59,7 @@ GetOptions(
     'randomize'=>\$randomize,
     'first-lumi-block|flb=i'=>\$firstlumiblock,
     'eosoutdir=s'=>\$eosoutdir,
+    'cmst3'=>\$cmst3,
     'condor-memory=s'=>\$condormem
 );
 
@@ -188,6 +189,10 @@ if hasattr(process,"TFileService") and type($THEPROCESS.TFileService) == cms.Ser
 
 cmsSplit_output_file.close()
 EOF
+if ($inlinecustomize) {
+    $queryPythonFile = "## Inline customize begin\n$inlinecustomize\n## Inline customize end\n" . $queryPythonFile;
+}
+
 my @pythonCrap = qx{ echo '$queryPythonFile'  | $runme 2>&1 };
 open PYTHONFILEINFO, "$py_out_file" or die "Python inspection didn't produce output.\nIt shouted ".join('',@pythonCrap)."\n";
 my @pythonFileInfo = <PYTHONFILEINFO>;
@@ -640,7 +645,7 @@ foreach my $j (1 .. $jobs) {
         $postamble .= "   if X != 'saveFileName': getattr(process.RandomNumberGeneratorService,X).initialSeed = rnd.randint(1,99999999)\n";
     }
     if ($inlinecustomize) {
-        $postamble .= "## Inline customize begin\n$inlinecustomize\n## Inline customize end\n";
+        $postamble = "## Inline customize begin\n$inlinecustomize\n## Inline customize end\n" . $postamble;
     }
     print " and will append postamble\n$postamble\n" if $verbose > 1;
     my $text = $src . "\n### ADDED BY cmsSplit.pl ###\n" . $postamble;
@@ -693,13 +698,17 @@ foreach my $m (sort(keys(%mergeNano))) {
     my $in  = join(" ",@{$mergeNano{$m}->{'infiles'}});
     print OUT <<EOF;
 #!/bin/bash
-if which haddnano.py > /dev/null 2>&1; then 
-    MERGE="haddnano.py"; 
-else 
-    MERGE="hadd"; 
-    echo "WARNING: haddnano.py not available."; 
+if which haddnano.py > /dev/null 2>&1; then
+    MERGE="haddnano.py";
+elif which wget > /dev/null 2>&1 && wget https://raw.githubusercontent.com/cms-nanoAOD/nanoAOD-tools/master/scripts/haddnano.py -O \$CMSSW_BASE/bin/\$SCRAM_ARCH/haddnano.py -q; then
+    chmod +x \$CMSSW_BASE/bin/\$SCRAM_ARCH/haddnano.py
+    echo "Retrieved haddnano.py from cms-nanoAOD github master"
+    MERGE="haddnano.py";
+else
+    MERGE="hadd -ff";
+    echo "WARNING: haddnano.py not available.";
 fi
-\$MERGE -f $out $in
+\$MERGE $out $in
 EOF
     close OUT;
 }
@@ -714,7 +723,7 @@ if ($tfsFile and not($nomerge)) {
     if (!$pretend) {
         open OUT, "> $pyfile" or die "Can't write to $pyfile\n";  push @cleanup, $pyfile;
         print OUT "#!/bin/sh\n";
-        print OUT "hadd -f $tfsOut " . join(" ",@tfsMerge) . "\n";
+        print OUT "hadd -ff $tfsOut " . join(" ",@tfsMerge) . "\n";
         close OUT;
         chmod 0755, $pyfile;
     }
@@ -846,6 +855,8 @@ if ($lsf and not($pretend)) {
             $runner = "/afs/cern.ch/user/g/gpetrucc/sh/cmsRunBatchEOS";
             $args .= "  $eosoutdir";
         }
+my $condoracc = "";
+if (defined($cmst3)) { $condoracc = '+AccountingGroup = "group_u_CMST3.all"' }
 print OUT <<EOF;
 Universe = vanilla
 Executable = $runner 
@@ -858,6 +869,7 @@ getenv      = True
 request_memory = $condormem
 transfer_output_files = ""
 +MaxRuntime = $time
+$condoracc
 
 Arguments = $args ${basename}${label}_\$(Job).py
 Queue Job from (
