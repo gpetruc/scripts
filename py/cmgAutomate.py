@@ -36,6 +36,16 @@ def _getEvents(fname):
     #except:
     #    return 0
 
+def _totalCondorJobs():
+    try:
+        for line in subprocess.check_output(["condor_q"]).split("\n"):
+            m = re.match(r"\d+ jobs; \d+ completed, \d+ removed, (\d+) idle, (\d+) running, (\d+) held, (\d+) suspended", line)
+            if m: return sum(map(int, [m.group(i) for i in (1,2,3,4)]))
+    except:
+        pass
+    return 9999
+
+ 
 class ChunkContainer:
     def __init__(self, dirname, chunks = None, isData=None):
         self.dir = os.path.abspath(dirname.rstrip("/"))
@@ -117,7 +127,7 @@ class ChunkContainer:
         if completionTarget == 100.0:
             return status['ok'][1] == len(self.allChunks())
         else:
-            return status['ok'][0] >= completionTarget * len(self.chunks)
+            return status['ok'][0] >= completionTarget/100.0 * len(self.chunks)
     def isEmpty(self):
         return not self.chunks
     def moveAllChunks(self, dstdir):
@@ -125,18 +135,20 @@ class ChunkContainer:
             raise RuntimeError("Cannot move chunks to %s" % dstdir)
         for c in self.chunks:
             shutil.move(c.dir, dstdir+"/"+c.name)
-    def moveFailedChunks(self, faildir, verbose = False):
+    def moveFailedChunks(self, faildir, verbose = False, removeFromChunks=True):
         if faildir is None: 
             faildir = os.path.dirname(self.dir)+"/failed";
         if not os.path.isdir(faildir): 
             os.mkdir(faildir)
         if not os.path.isdir(faildir):
             raise RuntimeError("Cannot move failing chunks to %s" % faildir)
-        for c in self.chunks:
+        for c in self.chunks[:]:
             if c.isSplit(): continue
             if c.status != 'ok':
                 if verbose: print "Move %s %s to %s" % (c.status, c.name, faildir)
+                c.status = "removed"
                 shutil.move(c.dir, faildir)
+                self.chunks.remove(c)
     def mergeSplitChunks(self, completionTarget = 100.0, verbose = False, faildir=None):
         ok = True
         for c in self.allSplitChunks():
@@ -156,7 +168,7 @@ class Production(ChunkContainer):
         ChunkContainer.__init__(self, dirname)
         self.options = options
         if options and options.verbose: print "Loading production dir "+self.dir, "..."
-        for dirname in glob(self.dir+"/*_Chunk*"):
+        for dirname in glob(self.dir+"/*"):
             if _isValidChunk(dirname):
                 self.append(Chunk(dirname))
         if options and options.verbose: print " (%d chunks)" % len(self.chunks) 
@@ -191,7 +203,7 @@ class Production(ChunkContainer):
         if action == "none": return
         for s in self.samples.itervalues():
             if not s.isComplete(completionTarget = completionTarget): continue
-            if verbose: print "%s is complete at %.1f%%: %s" % (s.name, completionTarget, action)
+            if verbose: print "%s is complete at %s: %s" % (s.name, completionTarget if completionTarget is not None else s.defaultCompletionTarget(), action)
             s.moveFailedChunks(faildir, verbose=verbose)
             if action == "move":
                 donedir = self.dir+"/done"
@@ -234,9 +246,13 @@ class Sample(ChunkContainer):
         self.name = name
         self.options = options
         self.isData = isData if isData != None else ("Run201" in self.name)
+    def defaultCompletionTarget(self):
+        return self.options.completionData if self.isData else self.options.completionMC 
+    def isComplete(self, completionTarget = 100.0):
+        if completionTarget is None: completionTarget = self.defaultCompletionTarget()
+        return ChunkContainer.isComplete(self, completionTarget = completionTarget)
     def mergeSplitChunks(self, completionTarget = 100.0, verbose = True, faildir=None):
-        if completionTarget is None:
-            completionTarget = self.options.completionData if self.isData else self.options.completionMC 
+        if completionTarget is None: completionTarget = self.defaultCompletionTarget()
         ChunkContainer.mergeSplitChunks(self, completionTarget=completionTarget, verbose=verbose, faildir=faildir)
     def diskSize(self):
         ret = 0
@@ -244,6 +260,8 @@ class Sample(ChunkContainer):
             ret += sum(os.path.getsize(f) for f in glob(c.dir+"/*.root"))
         return ret / (1024.0**3) # Gb
     def hadd(self, verbose=False, outdir=None):
+        if len(self.chunks) == 1 and "Chunk" not in self.chunks[0].dir:
+            return
         if outdir is None: outdir = self.dir
         logfilename = "%s/hadd_%s.log" % (self.dir, self.name)
         if os.path.isfile(logfilename):
@@ -466,11 +484,17 @@ class SetupEnvProblem(Failure):
             #if "Could not find platform independent libraries <prefix>" in line:
             if ("scram: command not found" in line or
                 "tee: preprocessor.log: No space left on device" in line or
+                re.match(r"Cannot open .*\.SCRAM/Environment. file for reading.*", line) or
                 re.match(".*ERROR.*Server responded with an error:.*No space left on device.*",line) or
                 re.match(".*ERROR.*Server responded with an error:.*XrdXrootdAio: Unable to read /store\\S+.root; Unknown error.*",line)):
                 return SetupEnvProblem(chunk, 
                         resub=(chunk.countResubmit("SetupEnvProblem") < 2 and chunk.fileAge() > 2), 
                         extra=("%s at line %d of %s" % (line.strip(), i, chunk.condor("error"))))
+            m = re.match("Error in <TFile::TFile>: file (/afs/cern.ch/\\S+) does not exist",line)
+            if m and os.path.isfile(m.group(1)):
+                return SetupEnvProblem(chunk, 
+                        resub=(chunk.countResubmit("SetupEnvProblem") < 2 and chunk.fileAge() > 2), 
+                        extra=("Afs glitch, %s at line %d of %s" % (line.strip(), i, chunk.condor("error"))))
         return None
 
 class PreprocessorFailure(Failure):
@@ -500,22 +524,24 @@ class PreprocessorFailure(Failure):
         if not log: return None
         wasreading = False
         for i, line in enumerate(log):
-            wasreading = line.startswith("Begin processing the")
-        if wasreading and busError:
+            wasreading = line.startswith("Begin processing the") or line.startswith("%MSG")
+        if wasreading and (busError or badPreprocOutput):
             return PreprocessorFailure(chunk, "PreprocessorJobCrashed",
                     resub=(chunk.countResubmit("PreprocessorJobCrashed") < 2 and chunk.fileAge() > 2),
-                    extra=("%s\n and preprocessor log ends abruptly with line %r" % (busError, line)))
+                    extra=("%s\n and preprocessor log ends abruptly with line %r" % (busError or badPreprocOutput, line)))
         return None
 
 
 from optparse import OptionParser
 parser = OptionParser(usage="%prog [options] chunk-list-or-directories ")
-parser.add_option("--completion-mc", dest="completionMC", type="float", default=97., help="Percent of jobs to declare a MC sample complete (default: 97)")
-parser.add_option("--completion-data", dest="completionData", type="float", default=100., help="Percent of jobs to declare a data sample complete (default: 100)")
+parser.add_option("--cm", "--completion-mc", dest="completionMC", type="float", default=97., help="Percent of jobs to declare a MC sample complete (default: 97)")
+parser.add_option("--cd", "--completion-data", dest="completionData", type="float", default=100., help="Percent of jobs to declare a data sample complete (default: 100)")
 parser.add_option("--cheap-resub-timeout", dest="cheapResubTimeout", type="int", default=20, help="Time to wait before cheap resubmission (e.g. env failure)")
 parser.add_option("--expensive-resub-timeout", dest="expensiveResubTimeout", type="int", default=120, help="Time to wait before cheap resubmission (e.g. env failure)")
 parser.add_option("-t", "--time", dest="time", type="int", default=800, help="Job time in minutes")
+parser.add_option("-T", "--max-total-jobs", dest="maxTotal", type="int", default=1000, help="Max total jobs")
 parser.add_option("-M", "--max-extra-jobs", dest="maxExtra", type="int", default=0, help="Max extra jobs")
+parser.add_option("-U", "--resubmit-unknown", dest="resubmitUnknown", action="store_true", default=False, help="Max extra jobs")
 parser.add_option("-a", "--accounting-group", dest="acc", type="str", default=None, help="Specify an AccountingGroup for ClassAds")
 parser.add_option("--cmg", dest="acc", action="store_const", const="group_u_CMST3.all", help="Use CMG accounting group")
 parser.add_option("-o", "--out", dest="output", type="str", default="resub.cfg", help="Name of condor resubmit file")
@@ -532,59 +558,70 @@ if   options.completionAlgo == "force": completionTarget = None
 elif options.completionAlgo == "FORCE": completionTarget = 0.0
 
 checks = [ SetupEnvProblem, TimeExceeded, PreprocessorFailure ]
-problems = []
 dirs = []
-unknown = []
+all_problems = []
+all_unknown = []
 
 for a in args:
-   if os.path.isdir(a): 
-       prod = Production(a, options=options)
-       print "\nProduction at %s: %d / %d chunks" % (prod.dir, len(prod.chunks), len(prod.allChunks()))
-       if prod.isEmpty(): 
-           prod.printMergedSamples()
-           continue
-       prod.loadStatus()
-       prod.printStatus()
-       prod.mergeSplitChunks(completionTarget=completionTarget)
-       prod.processCompletedSamples(completionTarget=completionTarget)
-       prod.printMergedSamples()
-       dirs.append(prod)
-       for chunk in prod.allChunksByStatus("failed"):
-           for check in checks:
-                problem = check.test(chunk)
-                if problem: break
-           if problem:
-                problems.append(problem)
-                if options.verbose: print problem
-           else:
-               unknown.append(chunk)
-               if options.verbose: print "ths is ok or unknown: "+chunk.name
-
-if len(problems):
-    print "\nKnown failures: %d" % len(problems)
-    problemCounter = defaultdict(list)
-    for p in problems:
-        problemCounter[p.reason].append(p.chunk)
-    for p,cs in sorted(problemCounter.iteritems()):
-        print "%6d %s: %s" %(len(cs),p, ", ".join(c.name for c in cs[:3]))
-if len(unknown):
-    print "\nUnknown failures: %d\n    %s" %(len(unknown), ", ".join(c.name for c in unknown[:5]))
-
+    if not os.path.isdir(a): continue
+    prod = Production(a, options=options)
+    print "\nProduction at %s: %d / %d chunks" % (prod.dir, len(prod.chunks), len(prod.allChunks()))
+    if prod.isEmpty(): 
+        prod.printMergedSamples()
+        continue
+    prod.loadStatus()
+    prod.printStatus()
+    prod.mergeSplitChunks(completionTarget=completionTarget)
+    prod.processCompletedSamples(completionTarget=completionTarget)
+    prod.printMergedSamples()
+    dirs.append(prod)
+    problems, unknown = [], [] 
+    for chunk in prod.allChunksByStatus("failed"):
+        for check in checks:
+             problem = check.test(chunk)
+             if problem: break
+        if problem:
+             problems.append(problem)
+             if options.verbose: print problem
+        else:
+            unknown.append(chunk)
+            if options.verbose: print "ths is ok or unknown: "+chunk.name
+    if len(problems):
+         print "\nKnown failures: %d" % len(problems)
+         problemCounter = defaultdict(list)
+         for p in problems:
+             problemCounter[p.reason].append(p.chunk)
+         for p,cs in sorted(problemCounter.iteritems()):
+             print "%6d %s: %s" %(len(cs),p, ", ".join(c.name for c in cs[:3]))
+    if len(unknown):
+        print "\nUnknown failures: %d\n    %s" %(len(unknown), ", ".join(c.name for c in unknown[:5]))
+    all_problems += problems[:]
+    all_unknown += unknown[:]
 if not options.go: 
     sys.exit(0)
 
 resubs = []
 # first all cheap resubs
-for problem in problems:
+for problem in all_problems:
     if problem.resub and problem.chunk.fileAge() > options.cheapResubTimeout/60.:
         resubs += problem.prepareResub()
+if options.verbose and resubs:
+    print "Preparing for resubmit: %d jobs" % resubs
+allowedExtra = min(options.maxTotal - _totalCondorJobs(), options.maxExtra)
+if options.verbose:
+    print "Allowed extra jobs: min(%d - %d, %d) = %d" % (options.maxTotal,  _totalCondorJobs(), options.maxExtra, allowedExtra)
 # then possibly expensive resubs
-for problem in problems:
-    if len(resubs) >= options.maxExtra: break
+for problem in all_problems:
+    if len(resubs) >= allowedExtra: break
     if (not problem.resub) and problem.chunk.fileAge() > options.expensiveResubTimeout/60.:
         if problem.canHaveExpensiveResub():
             resubs += problem.prepareResub()
     
+if options.resubmitUnknown:
+    for chunk in all_unknown:
+        if len(resubs) >= allowedExtra: break
+        if chunk.countResubmit("Auto Resubmit Unknown Failures once"): continue
+        resubs.append(chunk.dir)
 
 if len(resubs) == 0:
     print "\nNo jobs to resubmit"
