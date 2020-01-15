@@ -1,8 +1,9 @@
 #!/bin/bash
-
+if [[ "$1" == "-n" ]]; then NANOAOD=true; shift; else NANOAOD=false; fi;
 while true; do clear;
 ( uptime;
   echo;
+  SHOULDWAIT=true
   for Dir in $*; do
     echo "$Dir:"
     Metadata=$Dir;
@@ -16,30 +17,45 @@ while true; do clear;
         fi;
         Metadata=$Dir/metadata
     fi;
-    ls -1d $Dir/*_Chunk* > $Metadata/all_chunks
+    ls -1d $Dir/*_Chunk* > $Metadata/all_chunks_bare 2> /dev/null || continue;
+    grep -v 'Chunk[0-9]\+.dir' $Metadata/all_chunks_bare > $Metadata/all_chunks
+    grep    'Chunk[0-9]\+.dir' $Metadata/all_chunks_bare > $Metadata/all_chunk_dirs
+    if test -s $Metadata/all_chunk_dirs; then
+        for SD in $(cat $Metadata/all_chunk_dirs); do ls -1d $SD/*_Chunk* 2> /dev/null; done >> $Metadata/all_chunks
+    fi
     echo -n " collecing info on $(cat $Metadata/all_chunks | wc -l) chunks, please wait ...";
-    cmgListChunksToResub -d $Dir > $Metadata/to_resub;
-    ~/sh/running_chunks | sed -e "s#\$HOME#$HOME#g" -e 's#$#/#' > $Metadata/all_really_runing
-    : > $Metadata/running; : > $Metadata/to_retry_sub;
+    if $NANOAOD; then
+        cmgListChunksToResub -d $Dir -t NanoAOD -z > $Metadata/to_resub;
+    else
+        cmgListChunksToResub -d $Dir > $Metadata/to_resub;
+    fi
+    if test -s $Metadata/all_chunk_dirs; then
+        echo -n "checking $(cat $Metadata/all_chunk_dirs | wc -l) split chunks...";
+        for SD in $(cat $Metadata/all_chunk_dirs); do 
+            if $NANOAOD; then
+                cmgListChunksToResub -d $SD -t NanoAOD -z | grep -v '.dir/source' >> $Metadata/to_resub;
+            else
+                cmgListChunksToResub -d $SD | grep -v '.dir/source' >> $Metadata/to_resub;
+            fi
+        done
+    fi
+    : > $Metadata/running; # : > $Metadata/to_retry_sub;
     for C in $( awk '/^#.*running/{print $3}' $Metadata/to_resub ); do
-        if grep -q "${C}$" $Metadata/all_really_runing; then
-             echo "${C}" >> $Metadata/running;
-        else
-             echo "cmgResubChunk -q 8nh ${C}" >> $Metadata/to_retry_sub;
-        fi;
+         echo "${C}" >> $Metadata/running;
     done
-    echo -ne "\r                                                                                     \r";
+    echo -ne "\r                                                                                                               \r";
     echo -n "   Running: "; cat $Metadata/running | wc -l
-    echo -n "   NotSub:  "; cat $Metadata/to_retry_sub | wc -l
+    # echo -n "   NotSub:  "; cat $Metadata/to_retry_sub | wc -l
     echo -n "   Failed:  "; cat $Metadata/to_resub | grep -c -v '^#'  
     echo -n "   Total:   "; cat $Metadata/all_chunks |  wc -l
-    sed 's/_Chunk[0-9]\+//g' $Metadata/all_chunks | sort | uniq > $Metadata/all_samples
+    sed 's/_Chunk[0-9]\+\(\.dir\/.*Chunk[0-9].*Chunk[0-9]\)\?//g' $Metadata/all_chunks | sort | uniq > $Metadata/all_samples
     echo "   ---"
     echo -e "ALL\tRUN\tFAIL\tGOOD\t [%]\tACTION\tSAMPLE"
     for S in $(cat $Metadata/all_samples); do
         ALL=$(grep -c ${S}_Chunk $Metadata/all_chunks)
         RUN=$(cat $Metadata/running | grep -c ${S}_Chunk)
-        FAIL=$(grep -v running $Metadata/to_resub | cat - $Metadata/to_retry_sub | sort | uniq | grep -c ${S}_Chunk)
+        #FAIL=$(grep -v running $Metadata/to_resub | cat - $Metadata/to_retry_sub | sort | uniq | grep -c ${S}_Chunk)
+        FAIL=$(grep -v running $Metadata/to_resub  | sort | uniq | grep -c ${S}_Chunk)
         GOOD=$(( $ALL - $RUN - $FAIL ));
         if [[ "$ALL" != "0" ]]; then
             PERCENT="$(( $GOOD * 100 / $ALL ))%";
@@ -50,7 +66,7 @@ while true; do clear;
         (( $RUN > 0 )) && STATUS="wait" 
         (( $FAIL > 0 )) && STATUS="CHECK"
         echo -e "$ALL\t$RUN\t$FAIL\t$GOOD\t$PERCENT\t$STATUS\t$(basename $S)";
-        if test -d $Dir/done && [[ "$STATUS" == "done" ]]; then echo "mv ${S}_Chunk* $Dir/done/"; fi;
+        if test -d $Dir/done && [[ "$STATUS" == "done" ]]; then mv ${S}_Chunk* $Dir/done/; SHOULDWAIT=false; fi;
     done
     echo
   done;
@@ -60,7 +76,10 @@ while true; do clear;
   echo; 
   fs listq ~ ~/w
 ) | tee ~/public_html/batch-status.txt 
-echo; echo sleep; sleep 2m || break; 
+echo; 
+if $SHOULDWAIT; then
+    echo sleep; sleep 10m || break; 
+fi;
 done
 
     

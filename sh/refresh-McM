@@ -1,9 +1,18 @@
 #!/bin/bash
 while true; do
 clear; 
-python listMCM.py -o ~/public_html/drop/MCMSummary-Autumn18.json "RunIIAutumn18*" "RunIIFall18*GS" "RunIIFall18*LHE*"
-python listMCM.py -o ~/public_html/drop/MCMSummary-Fall17.json "RunIIFall17DR*" "RunIIFall17FS*" RunIIFall17GS RunIIFall17MiniAODv2 RunIIFall17NanoAOD RunIIFall17NanoAODv4 RunIIFall17pLHE RunIIFall17wmLHEGS  -T 240 -p 1000
-python listMCM.py -o ~/public_html/drop/MCMSummary-Summer16.json -a "RunIISummer16*" -x Summer16Geant4102 -T 240 -p 1000
+python listMCM.py -o ~/public_html/drop/MCMSummary-Autumn18.json "RunIIAutumn18*" "RunIIFall18*GS" "RunIIFall18*LHE*" -x RunIIAutumn18NanoAOD -x RunIIAutumn18NanoAODv4 -T 360 -p 2000
+python listMCM.py -o ~/public_html/drop/MCMSummary-Fall17.json "RunIIFall17DR*" "RunIIFall17FS*" RunIIFall17GS RunIIFall17MiniAODv2 RunIIFall17NanoAODv6 RunIIFall17NanoAODv5 RunIIFall17pLHE RunIIFall17wmLHEGS -x RunIIFall17NanoAOD -T 360 -p 2000
+python listMCM.py -o ~/public_html/drop/MCMSummary-Summer16.json -a "RunIISummer16*" -x Summer16Geant4102 -x RunIISummer16NanoAOD -x RunIISummer16NanoAODv3 -x RunIISummer16NanoAODv4  -T 360 -p 2000
+## TDR
+python listMCM.py -o ~/public_html/drop/MCMSummary-PhaseIIMTDTDRAutumn18.json "PhaseIIMTDTDRAutumn18*"  -t LHE,GEN-SIM,GEN-SIM-DIGI-RAW -a -T 360 -p 2000
+python listMCM.py -o ~/public_html/drop/MCMSummary-PhaseIITDRSpring19.json "PhaseIITDRSpring19*"  -x RunIIWinter19PFCalib17pLHE -t LHE,GEN-SIM,GEN-SIM-DIGI-RAW -a -T 360 -p 2000
+## Ultralegacy
+python listMCM.py -o ~/public_html/drop/MCMSummary-UL2017.json "RunIISummer19UL17*" -a -T 360 -p 2000
+python listMCM.py -o ~/public_html/drop/MCMSummary-UL2018.json "RunIISummer19UL18*" -a -T 360 -p 2000
+## Run 3 studies
+python listMCM.py -o ~/public_html/drop/MCMSummary-Run3Summer19.json "Run3Summer198*" -a -T 360 -p 2000
+
 uptime
 echo "Sleep"
 sleep 120m || break;

@@ -59,6 +59,7 @@ for arg in args:
         chunksize = options.chunks
         if len(files) < options.jobs * chunksize:
             chunksize = int(ceil(len(files)/float(options.jobs)))
+        if chunksize == 0: chunksize = 1
         nchunks = int(ceil(len(files)/float(chunksize)))
         chunks = [ files[i:i+chunksize] for i in xrange(0,len(files),chunksize) ]
         if options.jobs:

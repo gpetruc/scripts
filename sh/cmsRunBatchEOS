@@ -15,7 +15,8 @@ echo "## Work dir: $MYDIR"    >> $LOG
 echo "## Executing cmsRun $*" >> $LOG
 echo "## Starting at $(date)" >> $LOG
 cp -s $HOMEDIR/* .
-cmsRun $* >> $LOG 2>&1
+#cmsRun $* >> $LOG 2>&1
+cmsRun $* 2>&1 | tee $LOG # get some output to the console, to avoid confusing Condor
 for f in *.root; do
     if test -h $f; then
         echo "$f is a symlink, will not copy"     2>&1 | tee -a $LOG
@@ -34,3 +35,5 @@ if (( $(stat -c "%s" $LOG) < 12400 )); then
 else
     gzip $LOG && cp ${LOG}.gz $HOMEDIR/
 fi;
+# make sure the return is true
+true;

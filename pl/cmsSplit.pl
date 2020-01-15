@@ -856,6 +856,16 @@ if ($lsf and not($pretend)) {
             $args .= "  $eosoutdir";
         }
 my $condoracc = "";
+my $condorflav = "";
+if (defined($ENV{'SCRAM_ARCH'})) {
+    if ($ENV{"SCRAM_ARCH"} =~ m/slc6_amd64.*/) {
+        $condorflav = 'requirements = (OpSysAndVer =?= "SLCern6")';
+    } elsif ($ENV{"SCRAM_ARCH"} =~ m/(cc|slc)7_amd64.*/) {
+        $condorflav = 'requirements = (OpSysAndVer =?= "CentOS7")';
+    } else {
+        die "Unsupported SCRAM_ARCH = ".$ENV{'SCRAM_ARCH'};
+    }
+}
 if (defined($cmst3)) { $condoracc = '+AccountingGroup = "group_u_CMST3.all"' }
 print OUT <<EOF;
 Universe = vanilla

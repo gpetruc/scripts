@@ -1,6 +1,12 @@
 #!/bin/bash
 while true; do clear; 
- (uptime; ~/sh/lsfstat; echo; fs listq ~ ~/w ~/scratch0  ; echo; : ~/sh/my-eos-quota ) | tee ~/public_html/status.txt ; 
+ (echo "$(date) on $(hostname) $(uptime)";
+  echo;
+  ~/sh/lsfstat; echo; 
+  condor_q; echo;
+  fs listq ~ ~/w ~/scratch0 ; 
+  echo; . ~/sh/my-eos-quota ) | tee ~/public_html/status.txt ; 
+ echo; echo;
  # MiniAOD list
  test -f refresh-miniAODlist && . refresh-miniAODlist; 
  # Sleep

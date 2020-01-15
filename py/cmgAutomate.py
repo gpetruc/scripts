@@ -27,9 +27,9 @@ def _getEvents(fname):
     ROOT.PyConfig.IgnoreCommandLineOptions = True
     #try:
     tfile = ROOT.TFile.Open(fname)
-    if not tfile: return 1
+    if (not tfile) or tfile.IsZombie() or tfile.TestBit(tfile.kRecovered): return -1
     events = tfile.Get("Events")
-    if not events: return 2
+    if not events: return -1
     ret = events.GetEntries()
     tfile.Close()
     return ret
@@ -259,8 +259,17 @@ class Sample(ChunkContainer):
         for c in self.chunks:
             ret += sum(os.path.getsize(f) for f in glob(c.dir+"/*.root"))
         return ret / (1024.0**3) # Gb
+    def isNotSplit(self):
+        return len(self.chunks) == 1 and ("Chunk" not in self.chunks[0].dir)
     def hadd(self, verbose=False, outdir=None):
-        if len(self.chunks) == 1 and "Chunk" not in self.chunks[0].dir:
+        if self.isNotSplit(): 
+            rootfile = "%s/%s.root" % (self.chunks[0].dir, self.name)
+            target   = "%s/%s.root" % (self.dir, self.name)
+            if os.path.isfile(rootfile)  and not os.path.isfile(target):
+                if (glob(self.chunks[0].dir+"/*.root") == 1) and (_getEvents(rootfile) != -1):
+                    shutil.move(rootfile, target)
+                    if os.path.isfile(target):
+                        shutil.rmtree(self.chunks[0].dir)
             return
         if outdir is None: outdir = self.dir
         logfilename = "%s/hadd_%s.log" % (self.dir, self.name)
@@ -292,6 +301,14 @@ class Sample(ChunkContainer):
                 haddlog += "   %s : %10.6f G\n" % (f, fsize / (1024.**3))
                 if verbose: print  "   %s : %10.6f G\n" % (os.path.basename(f), fsize / (1024.**3))
             haddlog += "Total : %7.3f G\n" % (total)
+
+            if len(outputs) == 0 or total < 0.4 * size:
+                log = open(logfilename, "w");
+                log.write(haddlog+"\n")
+                log.write("ERROR: Output size %1.f G too small compared to original chunks (%.1f G), something must be wrong.\n")
+                print     "ERROR: Output size %1.f G too small compared to original chunks (%.1f G), something must be wrong.\n"
+                log.close()
+                return False
 
             freedst = _freeDiskInGb(outdir)
             haddlog += "Free  : %7.3f G in destination %s \n" % (total, outdir)
@@ -532,6 +549,50 @@ class PreprocessorFailure(Failure):
         return None
 
 
+class XRootDFailure(Failure):
+    def __init__(self, chunk, name, server, lfn, **kwargs):
+        Failure.__init__(self, chunk, name, **kwargs)
+        self.lfn = lfn
+        self.server = server
+
+    @staticmethod
+    def test(chunk):
+        noServers = True
+        badPreprocOutput = False
+        noPreprocLog = False
+        for i, line in enumerate(open(chunk.condor("error"),'r')):
+            line = line.strip()
+            if re.match(r".*ERROR.*Server responded with an error:.*No servers are available to read the file.*", line):
+                noServers = "XRootD error in condor log, line %d: %s" % (i, line)
+                break
+
+        if noServers:
+            server, lfn = None, None
+            log = chunk.preprocessorLog()
+            if log: # preprocessor
+                hasFatal = False
+                for i, line in enumerate(log):
+                    if "Begin Fatal Exception" in line: hasFatal = True
+                    elif "End Fatal Exception" in line: hasFatal = False
+                    if hasFatal:
+                        m = re.match(".*XrdCl::File::Open.*root://(.*)/(/store/.*\.root).*ERROR.*Server responded with an error.*No servers are available to read the file.*", line)
+                        if m:
+                            server = m.group(1)
+                            lfn = m.group(2)
+                            break
+            else: # direct access
+                pass # not supported yet
+            if server != None and lfn != None:
+                if lfn.startswith("/store/mc"):
+                    f = lfn.split('/')
+                    dataset = "/%s/%s-%s/%s" % (f[4],f[3],f[6],f[5])
+                return PreprocessorFailure(chunk, "NoServersForFile",
+                        resub=False, #(chunk.countResubmit("NoServersForFile") == 0 and chunk.fileAge() > 2),
+                        extra=("Failed to read %s from server %s" % (lfn,server)+"\n"+noServers))
+        return None
+
+
+
 from optparse import OptionParser
 parser = OptionParser(usage="%prog [options] chunk-list-or-directories ")
 parser.add_option("--cm", "--completion-mc", dest="completionMC", type="float", default=97., help="Percent of jobs to declare a MC sample complete (default: 97)")
@@ -557,7 +618,7 @@ completionTarget = 100.0
 if   options.completionAlgo == "force": completionTarget = None
 elif options.completionAlgo == "FORCE": completionTarget = 0.0
 
-checks = [ SetupEnvProblem, TimeExceeded, PreprocessorFailure ]
+checks = [ SetupEnvProblem, TimeExceeded, XRootDFailure, PreprocessorFailure ]
 dirs = []
 all_problems = []
 all_unknown = []
