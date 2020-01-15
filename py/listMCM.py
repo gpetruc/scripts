@@ -1,6 +1,10 @@
 import re
 import os, sys
-import simplejson as json # faster, at least in 2.7
+try:
+  import simplejson as json # faster, at least in 2.7
+except ImportError:
+  import json
+import random
 from fnmatch import fnmatch
 from time import strftime, strptime, localtime, sleep
 from datetime import datetime
@@ -8,8 +12,24 @@ from collections import defaultdict
 from gzip import GzipFile
 
 class ObjFromDict:
-    def __init__(self,j):
-        self._data = j
+    def __init__(self,j,keys=None,ikeys=None,skeys=None):
+        if keys:
+            self._data = dict((k,j[k]) for k in keys if k in j)
+            if skeys: # convert from unicode to string (saves memory)
+                for k in skeys:
+                    if k in j:
+                        if isinstance(j[k], str):
+                            self._data[k] = j[k]
+                        elif isinstance(j[k], unicode):
+                            self._data[k] = str(j[k])
+                        else:
+                            raise RuntimeError("Shouldn't coerce to str the key %s, value %r" % (k, j[k]))
+            if ikeys:
+                for k in ikeys:
+                    if k in j:
+                        self._data[k] = intern(str(j[k]))
+        else:
+            self._data = j
     def __repr__(self):
         return json.dumps(self._data, indent=4)
     def __getattr__(self,name):
@@ -18,15 +38,14 @@ class ObjFromDict:
 
 class Sample(ObjFromDict):
     def __init__(self,j):
-        ObjFromDict.__init__(self,j)
+        ObjFromDict.__init__(self,j,keys=["extension","priority","total_events","completed_events","member_of_chain","output_dataset"],
+                                    skeys=["_id","input_dataset","flown_with","dataset_name","member_of_campaign","status"])
         self.children = []
         self.parent = None
-        if options.debug:
-            print self
         # now we try to fix the parent
         if self.input() and self.outputs():
             input_tier = self.input().split("/")[-1]
-            for req in self.reqmgr_name:
+            for req in j['reqmgr_name']:
                 if 'pdmv_dataset_list' not in req['content']: continue
                 if self.outputs() and not any(o in req['content']['pdmv_dataset_list'] for o in self.outputs()):
                     continue
@@ -37,6 +56,9 @@ class Sample(ObjFromDict):
                                 print "Replace input dataset for %s from %s to %s" % (self.prep(), self.input(), dataset)
                             self._data['input_dataset'] = dataset
         #
+        self._lastDate = strftime('%d %b %y %H:%M', strptime(j['history'][-1]["updater"]["submission_date"], '%Y-%m-%d-%H-%M'))
+        if options.debug:
+            print self
     def initTier(self,tiers,tiermap):
         self.tier = "UNKNOWN"
         self.itier = 99
@@ -45,11 +67,15 @@ class Sample(ObjFromDict):
                 if any(o.endswith("/"+tier) for o in self.outputs()):
                     self.tier = tier
                     self.itier = i
+                    if options.debug:
+                        print "Request %s (input %s) selected for tier %s" % (self.prep(), self.input(), tier)
         if self.tier == "UNKNOWN":
             for i,tier in enumerate(tiers):
-                if any((c in self.member_of_campaign) for c in tiermap[tier]):
+                if any((c in self.member_of_campaign.replace("TDR","")) for c in tiermap[tier]): # avoid "TDR" to match "DR"
                     self.tier = tier
                     self.itier = i
+                    if options.debug:
+                        print "Request %s (campaing %s) selected for tier %s (%s)" % (self.prep(), self.member_of_campaign, tier, tiermap[tier])
         return self.tier != "UNKNOWN"
     def pdkey(self):
         return (self.dataset_name, self.extension)
@@ -62,7 +88,7 @@ class Sample(ObjFromDict):
     def io(self):
         return self.input(), self.outputs()
     def stat(self):
-        return self.status, self.priority, strftime('%d %b %y %H:%M', strptime(self.history[-1]["updater"]["submission_date"], '%Y-%m-%d-%H-%M'))
+        return self.status, self.priority, self._lastDate
     def evts(self):
         return self.total_events, self.completed_events
     def short(self):
@@ -95,7 +121,7 @@ parser.add_option("-d", "--dataset", dest="dataset", default=None, type="string"
 parser.add_option("-D", "--debug", dest="debug", action="store_true", default=False, help="Make new cookie")
 parser.add_option("-T", "--cache-time", dest="cacheTime", default=60, type="int", help="Cache time in minutes for McM queries (cookies always have 1h life)")
 parser.add_option("-r", "--retries", dest="retries", default=2, type="int", help="Retry this number of times")
-parser.add_option("--sleep-before-retry", dest="retrySleep", default=15, type="int", help="Seconds to sleep before retrying")
+parser.add_option("--sleep-before-retry", dest="retrySleep", default=30, type="int", help="Seconds to sleep before retrying")
 parser.add_option("-p", "--paginated", dest="paginatedQuery", default=0, type="int", help="Make a paginated query with this number of rows per step")
 parser.add_option("-n", "--pretend", dest="pretend", default=False, action="store_true", help="Only list the campaigns that would be considered")
 (options, args) = parser.parse_args()
@@ -125,8 +151,12 @@ def goodFile(fname):
             return False
     return True
 
+def cacheTimeCheck(age, cachetime, rand=True):
+    if not cachetime: cachetime = 60*options.cacheTime
+    if rand: cachetime = cachetime * (0.3 + random.random())
+    return age < cachetime
 def cachedCmd(text, command, fname, cachetime = 0):
-    goodcache = os.path.exists(fname) and fileAge(fname) < 60*(cachetime if cachetime else options.cacheTime) and goodFile(fname)
+    goodcache = os.path.exists(fname) and cacheTimeCheck(fileAge(fname), 60*cachetime) and goodFile(fname)
     if (options.noCache or not goodcache) and not options.forceCache:
         print text
         for retry in xrange(options.retries+1):
@@ -137,28 +167,34 @@ def cachedCmd(text, command, fname, cachetime = 0):
                     return True
             except:
                 pass
-            print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
-            sleep(options.retrySleep)
-def paginatedQuery(campaign, query, cachetime = 0, limit=500, compress=True):
+            if retry != options.retries:
+                print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
+                sleep(options.retrySleep)
+            else:
+                print "   request failed."
+
+def paginatedQuery(campaign, query, cachetime = 0, limit=500, compress=True, _queries=[0]):
     fname = 'McM-%s.json' % campaign
     if compress:
         fname += ".gz"
-    goodcache = os.path.exists(fname) and fileAge(fname) < 60*(cachetime if cachetime else options.cacheTime)
+    goodcache = os.path.exists(fname) and cacheTimeCheck(fileAge(fname), 60*cachetime)
     if options.forceCache or (goodcache and not options.noCache):
         try:
             data = json.load(GzipFile(fname,'r') if compress else open(fname,'r'))
             if 'results' in data and len(data['results']) >= 0:
                 return data['results']
         except:
+            print "Bad cache for %s" % cname
             pass
-    print "Paginated query to McM for campaign %s (%d rows at a time)" % (cname, limit)
+    cacheinfo = "cache %.0f min old, expiration %d min" % (fileAge(fname)/60, cachetime if cachetime else options.cacheTime) if os.path.exists(fname) else "cache does not exist"
+    print "Paginated query to McM for campaign %s (%d rows at a time), %s" % (cname, limit, cacheinfo)
     results = []; page = 0; pagname = 'McM-%s-paged.json' % campaign
     while page != -1:
         if os.path.exists(pagname): os.unlink(pagname)
         url = "https://cms-pdmv.cern.ch/mcm/search/?db_name=requests&page=%d&limit=%d&%s&get_raw" % (page, limit, query)
         for retry in xrange(options.retries+2):
-            print '$   curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "%s" > %s' % (url,pagname)
-            os.system('curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "%s" > %s' % (url,pagname))
+            print '$   curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "%s" -o %s' % (url,pagname)
+            os.system('curl -m 60 -k --cookie $HOME/private/mcm-prod-cookie.txt "%s" -o %s' % (url,pagname))
             if os.path.exists(pagname):
                 try:
                     data = json.load(open(pagname,'r'))
@@ -170,22 +206,47 @@ def paginatedQuery(campaign, query, cachetime = 0, limit=500, compress=True):
                             page = -1
                         else:
                             page = page + 1
+                            #print "sleep 10s."; 
+                            sleep(10)
                         break
                 except:
                     pass
-            print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries)
-            sleep(options.retrySleep)
+            if retry != options.retries + 1:
+                print "   request failed. waiting %ds and retrying (%d/%d)" % (options.retrySleep, retry+1, options.retries+1)
+                sleep(options.retrySleep)
+                if retry == 2: getCookie()
+            else:
+                print "Failed after too many retries"
+                if os.path.exists(fname):
+                    try:
+                        data = json.load(GzipFile(fname,'r') if compress else open(fname,'r'))
+                        if 'results' in data and len(data['results']) >= 0:
+                            print "Returning old results, from %.1f hours ago." % (fileAge(fname)/3600.0)
+                            return data['results']
+                    except:
+                        pass
+                return None
     json.dump({'results':results}, GzipFile(fname,'w') if compress else open(fname, 'w'))
+    # avoid stressing the code too much
+    _queries[0] += len(results)
+    if _queries[0] > 20000:
+        print "More than 20k records retrieved. Will pause for 15 minutes to give McM some time.",
+        for i in range(3*60): 
+            sleep(5); print ".",; sys.stdout.flush()
+        print " done."
+        _queries[0] = 0
     return results
                 
 # == INIT DATA TIERS ==
 TIERs = options.datatiers.split(",")
-TIERMAP = dict([ ("LHE",["LHE"]), ("GEN-SIM",["GS"]), ("AODSIM",["DR","FS"]), ("MINIAODSIM",["MiniAOD"]), ("NANOAODSIM",["NanoAOD"]) ])
+TIERMAP = dict([ ("LHE",["LHE"]), ("GEN-SIM",["GS"]), ("AODSIM",["DR","FS"]),  ("GEN-SIM-DIGI-RAW",["DR"]), ("MINIAODSIM",["MiniAOD"]), ("NANOAODSIM",["NanoAOD"]) ])
 
 # == INIT SSO COOKIE ==
-cachedCmd( "Get new SSO cookie for McM into $HOME/private/mcm-prod-cookie.txt",
-           "cern-get-sso-cookie -u https://cms-pdmv.cern.ch/mcm/ -o $HOME/private/mcm-prod-cookie.txt --krb --reprocess",
-           os.path.expandvars("$HOME/private/mcm-prod-cookie.txt"), cachetime = 60)
+def getCookie():
+    cachedCmd( "Get new SSO cookie for McM into $HOME/private/mcm-prod-cookie.txt",
+               "cern-get-sso-cookie -u https://cms-pdmv.cern.ch/mcm/ -o $HOME/private/mcm-prod-cookie.txt --krb --reprocess",
+               os.path.expandvars("$HOME/private/mcm-prod-cookie.txt"), cachetime = 30)
+getCookie()
 
 # == INIT CAMPAIGNS ==
 cachedCmd( "Query to McM for list of all campaign names",
@@ -226,6 +287,7 @@ BYOUTPUT = {}
 BYCHAIN = defaultdict(list)
 
 for cname in CNs:
+    #print "--> ",cname
     # query
     query = "member_of_campaign="+cname
     if options.dataset: 
@@ -247,10 +309,12 @@ for cname in CNs:
     if options.dataset:
         requests = [r for r in requests if r['dataset_name'] == options.dataset]
     samples = map(Sample, [r for r in requests if r and (r['dataset_name'].strip() != "")])
+    del requests
     print "Loaded %s from json (%d samples)" % (cname, len(samples))
     for req in samples:
+        #print "Request %s (input %s, output %s)" % (req.prep(), req.input(), req.outputs())
         if not req.initTier(TIERs, TIERMAP): 
-            print "Skipping %s %s of undetermined tier" % (req.prep(), req.pdkey())
+            print "Skipping %s %s of undetermined or unrequested tier" % (req.prep(), req.pdkey())
             continue
         if req.tier not in TIERs:
             print "Skipping %s %s of unselected tier %s" % (req.prep(), req.pdkey(), req.tier)
@@ -270,7 +334,6 @@ for cname in CNs:
         for chain in req.member_of_chain:
             if (req.flown_with if req.flown_with else req.member_of_campaign) in chain:
                 BYCHAIN[chain].append(req)
-
 print "I have %d total requests in %d campaigns, producing %d datasets" % (len(BYPREP), len(CNs), len(BYOUTPUT))
 
 primitives = [ ]

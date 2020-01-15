@@ -49,6 +49,7 @@ function getraw() {
 function tierFormVal(tier) {
     if (tier == "LHE") return document.sel.lhe.value;
     if (tier == "GEN-SIM") return document.sel.gensim.value;
+    if (tier == "GEN-SIM-DIGI-RAW") return document.sel.digiraw.value;
     if (tier == "AODSIM") return document.sel.aod.value;
     if (tier == "MINIAODSIM") return document.sel.mini.value;
     if (tier == "NANOAODSIM") return document.sel.nano.value;
@@ -128,6 +129,13 @@ function mcstatus(prepid, mcmitem, maxev, showpd) {
 function middlename(dataset) {
     return dataset.split("/")[2];
 }
+function forceUpdate() {
+    rawfile = "";
+    $.ajaxSetup({ cache: false}); // disable cache
+    update();
+    $.ajaxSetup({ cache: true}); // re-enable cache
+}
+
 function update() {
     document.getElementById("total").innerHTML = "<tr><td>Loading....</td></tr>";
     if (document.sel.report.value != rawfile) {
@@ -171,7 +179,7 @@ function update() {
 
 </script>
 </head>
-<body onload="update()">
+<body onload="">
 <h1 id="toptitle">MCM Summary</h1>
 <div id="extra"></div>
 <div>
@@ -198,6 +206,10 @@ Show LHE <select name="lhe">
 <option value="yes" <?php if (isset($_GET['gensim']) && $_GET['gensim'] == "yes") print 'selected="selected"'; ?> >yes</option>
 <option value="no" <?php if (isset($_GET['gensim']) && $_GET['gensim'] == "no") print 'selected="selected"'; ?> >no</option>
 <option value="full" <?php if (isset($_GET['gensim']) && $_GET['gensim'] == "full") print 'selected="selected"'; ?> >full</option>
+</select>, DIGI-RAW <select name="digiraw">
+<option value="yes" <?php if (isset($_GET['digiraw']) && $_GET['digiraw'] == "yes") print 'selected="selected"'; ?> >yes</option>
+<option value="no" <?php if (isset($_GET['digiraw']) && $_GET['digiraw'] == "no") print 'selected="selected"'; ?> >no</option>
+<option value="full" <?php if (isset($_GET['digiraw']) && $_GET['digiraw'] == "full") print 'selected="selected"'; ?> >full</option>
 </select>, AOD<select name="aod">
 <option value="yes" <?php if (isset($_GET['aod']) && $_GET['aod'] == "yes") print 'selected="selected"'; ?> >yes</option>
 <option value="no" <?php if (isset($_GET['aod']) && $_GET['aod'] == "no") print 'selected="selected"'; ?> >no</option>
@@ -212,6 +224,7 @@ Show LHE <select name="lhe">
 <option value="no" <?php if (isset($_GET['nano']) && $_GET['nano'] == "no") print 'selected="selected"'; ?> >no</option>
 </select> 
 <input type="button" value="Go" onclick="update()" />
+<input type="button" value="Reload" onclick="forceUpdate()" />
 </form>
 </div>
 <div>
