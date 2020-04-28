@@ -1,4 +1,4 @@
 #!/bin/bash
-for U in /eos/cms/store/{cmst3,caf}/user/gpetrucc ; do echo -ne "$U\t"; eos quota $U | grep 'gpetrucc' | sed -e 's/[^a-zA-Z0-9\.% ]//g' -e 's/%.*/%/g'; done 
-for U in /eos/user/g/gpetrucc ; do echo -ne "$U              \t"; eos root://eosuser.cern.ch  quota $U | grep 'gpetrucc' | sed -e 's/[^a-zA-Z0-9\.% ]//g' -e 's/%.*/%/g'; done;
-for U in /eos/cms/store/cmst3/group/{l1tr,hzz,tthlep}; do echo -ne "$U  \t"; eos quota $U | grep 'zh' | sed -e 's/[^a-zA-Z0-9\.% ]//g' -e 's/%.*/%/g'; done
+for U in /eos/cms/store/{cmst3,caf}/user/gpetrucc ; do echo -ne "$U\t"; eos quota $U 2> /dev/null | grep 'gpetrucc' | sed -e 's/[^a-zA-Z0-9\.% ]//g' -e 's/%.*/%/g'; done 
+for U in /eos/user/g/gpetrucc ; do echo -ne "$U              \t"; eos root://eosuser.cern.ch  quota $U  2> /dev/null | grep 'gpetrucc' | sed -e 's/[^a-zA-Z0-9\.% ]//g' -e 's/%.*/%/g'; done;
+for U in /eos/cms/store/cmst3/group/{l1tr,hzz,tthlep}; do echo -ne "$U  \t"; eos quota $U  2> /dev/null | grep 'zh' | sed -e 's/[^a-zA-Z0-9\.% ]//g' -e 's/%.*/%/g'; done

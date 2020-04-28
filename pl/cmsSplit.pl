@@ -867,10 +867,10 @@ if (defined($ENV{'SCRAM_ARCH'})) {
     }
 }
 if (defined($cmst3)) { $condoracc = '+AccountingGroup = "group_u_CMST3.all"' }
+#use_x509userproxy = \$ENV(X509_USER_PROXY)
 print OUT <<EOF;
 Universe = vanilla
 Executable = $runner 
-use_x509userproxy = \$ENV(X509_USER_PROXY)
 
 Log        = ${basename}${label}_\$(Job).condor
 Output     = ${basename}${label}_\$(Job).out

@@ -107,6 +107,11 @@ function igpa {
  igprof-analyse -g -d -v -p -r PERF_TICKS -s igperf-$BASE.out.gz.$POSTFIX | sqlite3 igperf-$BASE.sqlite.$POSTFIX
  echo "Dump saved in igperf-$BASE.out.gz.$POSTFIX. SQLite file for PERF_TICKS saved in igperf-$BASE.sqlite.$POSTFIX" 1>&2; 
 }
+function igpana {
+ test -f $1 || return 1
+ echo "Saving in ${1%%.gz}.sql3"
+ igprof-analyse -g -d -v -p -r PERF_TICKS -s  $1 | cat -v | sqlite3 ${1%%.gz}.sql3
+}
 
 
 
