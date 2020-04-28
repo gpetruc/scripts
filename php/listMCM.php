@@ -46,22 +46,53 @@ function getraw() {
         }
     }
 }
-function tierFormVal(tier) {
-    if (tier == "LHE") return document.sel.lhe.value;
-    if (tier == "GEN-SIM") return document.sel.gensim.value;
-    if (tier == "GEN-SIM-DIGI-RAW") return document.sel.digiraw.value;
-    if (tier == "AODSIM") return document.sel.aod.value;
-    if (tier == "MINIAODSIM") return document.sel.mini.value;
-    if (tier == "NANOAODSIM") return document.sel.nano.value;
+var tierToFormName = { 
+    "LHE":"lhe",
+    "GEN-SIM":"gensim", 
+    "GEN-SIM-DIGI-RAW":"digiraw",
+    "AODSIM":"aod",
+    "MINIAODSIM":"mini",
+    "NANOAODSIM":"nano" };
+var tierToFriendlyName = {
+    "AODSIM":"AOD",
+    "MINIAODSIM":"MiniAOD",
+    "NANOAODSIM":"NanoAOD" };
+
+function tierFormVal(tier,def) {
+    if (tier in tierToFormName) {
+        if (tierToFormName[tier] in document.sel) {
+            return document.sel[tierToFormName[tier]].value;
+        }
+    }
+    return def;
 }
 function filterdata() {
     var ret = Array();
     var pat = new RegExp(".*"+document.sel.match.value+".*");
     var nopat = new RegExp(".*"+document.sel.exclude.value+".*");
+    var procpat = new RegExp(".*"+document.sel.procmatch.value+".*");
     for (var i = 0; i < rawdata.length; ++i) {
         if (rawdata[i].pd.match(pat)) {
             if (document.sel.exclude.value != "" && rawdata[i].pd.match(nopat)) {
                 continue;
+            }
+            if (document.sel.procmatch.value != "") {
+                var ok = false;
+                for (var ir = 0; ir < rawdata[i].row.length; ++ir) {
+                    if (rawdata[i].row[ir].match(procpat)) {
+                        ok = true; break;
+                    }
+                    var myreq = requests[rawdata[i].row[ir]];
+                    if (myreq) {
+                        for (var io = 0; io < myreq.outputs.length; ++io) {
+                            if (myreq.outputs[io].match(procpat)) {
+                                ok = true; break;
+                            }
+                        }
+                    }
+                    if (ok) break;
+                }
+                if (!ok) continue;
             }
             ret.push(rawdata[i]);
         }
@@ -69,7 +100,7 @@ function filterdata() {
     tiers = Array();
     tierspan = Array();
     for (var i = 0; i < alltiers.length; ++i) {
-        var choice = tierFormVal(alltiers[i]);
+        var choice = tierFormVal(alltiers[i],"yes");
         if (choice == "no") continue;
         tiers.push(alltiers[i]);
         tierspan.push(choice == "full" ? 3 : 2);
@@ -144,7 +175,7 @@ function update() {
     document.getElementById("total").innerHTML = "<tr><td>Rendering....</td></tr>";
     document.title = "McM Summary (" + lastupdate + ")";
     document.getElementById("toptitle").innerHTML = "McM Summary (last update: " + lastupdate + ")";
-    document.getElementById("extra").innerHTML = "Monitored campaigns: "+campaigns.join(", ")+"; data tiers: "+alltiers.join(", ");
+    document.getElementById("extra").innerHTML = "Campaigns: "+campaigns.join(", ");
     sorted = filterdata();
     var ret = "<tr><th>Dataset</th><th>Events</th>";
     for (var i = 0; i < tiers.length; ++i) {
@@ -174,6 +205,24 @@ function update() {
 
     }
     document.getElementById("total").innerHTML = ret;
+    ret = "Data tiers: ";
+    sels = [ "yes", "no", "full"];
+    for (var i = 0; i < alltiers.length; ++i) {
+        var formname = alltiers[i] in tierToFormName ? tierToFormName[alltiers[i]] : alltiers[i];
+        var friendly = alltiers[i] in tierToFriendlyName ? tierToFriendlyName[alltiers[i]] : alltiers[i];
+        ret += friendly + " <select name=\""+formname+"\">";
+        var defchoice = (i == alltiers.length-1 || alltiers[i] == "MINIAODSIM") ? "full" : "yes";
+        var choice = tierFormVal(alltiers[i],defchoice);
+        for (var s = 0; s <= 2; ++s)  {
+            if (sels[s] == choice) {
+                ret += "<option value=\""+sels[s]+"\" selected=\"selected\">"+sels[s]+"</option>";
+            } else {
+                ret += "<option value=\""+sels[s]+"\">"+sels[s]+"</option>";
+            }
+        }
+        ret += "</select> "; 
+    }
+    document.getElementById("tiersel").innerHTML = ret
     return false;
 }
 
@@ -181,8 +230,6 @@ function update() {
 </head>
 <body onload="">
 <h1 id="toptitle">MCM Summary</h1>
-<div id="extra"></div>
-<div>
 <form name="sel" onsubmit="update();">
 Report:
 <select name="report">
@@ -196,9 +243,16 @@ Report:
     }
 ?>
 </select>
-Selection: <input type="text" name="match" size="40" maxlength="160" value="<?php print isset($_GET['match']) ? htmlspecialchars($_GET['match']) : ""?>" >
+<span id="extra"></span>
+<br />
+Dataset selection: <input type="text" name="match" size="40" maxlength="160" value="<?php print isset($_GET['match']) ? htmlspecialchars($_GET['match']) : ""?>" >
 Exclusion: <input type="text" name="exclude" size="20" maxlength="160" value="<?php print isset($_GET['exclude']) ? htmlspecialchars($_GET['exclude']) : ""?>" >
-Show LHE <select name="lhe">
+Processing: <input type="text" name="procmatch" size="40" maxlength="160" value="<?php print isset($_GET['procmatch']) ? htmlspecialchars($_GET['procmatch']) : ""?>" >
+<input type="button" value="Go" onclick="update()" />
+<input type="button" value="Reload" onclick="forceUpdate()" />
+<div id="tiersel">
+Data tiers:
+LHE <select name="lhe">
 <option value="yes" <?php if (isset($_GET['lhe']) && $_GET['lhe'] == "yes") print 'selected="selected"'; ?> >yes</option>
 <option value="no" <?php if (isset($_GET['lhe']) && $_GET['lhe'] == "no") print 'selected="selected"'; ?> >no</option>
 <option value="full" <?php if (isset($_GET['lhe']) && $_GET['lhe'] == "full") print 'selected="selected"'; ?> >full</option>
@@ -223,8 +277,7 @@ Show LHE <select name="lhe">
 <option value="yes" <?php if (isset($_GET['nano']) && $_GET['nano'] == "yes") print 'selected="selected"'; ?> >yes</option>
 <option value="no" <?php if (isset($_GET['nano']) && $_GET['nano'] == "no") print 'selected="selected"'; ?> >no</option>
 </select> 
-<input type="button" value="Go" onclick="update()" />
-<input type="button" value="Reload" onclick="forceUpdate()" />
+</div>
 </form>
 </div>
 <div>
