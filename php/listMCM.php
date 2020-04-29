@@ -100,7 +100,8 @@ function filterdata() {
     tiers = Array();
     tierspan = Array();
     for (var i = 0; i < alltiers.length; ++i) {
-        var choice = tierFormVal(alltiers[i],"yes");
+        var defchoice = (i == alltiers.length-1 || alltiers[i] == "MINIAODSIM" ||  alltiers[i] == "NANOAODSIM" ) ? "full" : "yes";
+        var choice = tierFormVal(alltiers[i],defchoice);
         if (choice == "no") continue;
         tiers.push(alltiers[i]);
         tierspan.push(choice == "full" ? 3 : 2);
@@ -177,7 +178,25 @@ function update() {
     document.getElementById("toptitle").innerHTML = "McM Summary (last update: " + lastupdate + ")";
     document.getElementById("extra").innerHTML = "Campaigns: "+campaigns.join(", ");
     sorted = filterdata();
-    var ret = "<tr><th>Dataset</th><th>Events</th>";
+    var ret = "Data tiers: ";
+    sels = [ "yes", "no", "full"];
+    for (var i = 0; i < alltiers.length; ++i) {
+        var formname = alltiers[i] in tierToFormName ? tierToFormName[alltiers[i]] : alltiers[i];
+        var friendly = alltiers[i] in tierToFriendlyName ? tierToFriendlyName[alltiers[i]] : alltiers[i];
+        ret += friendly + " <select name=\""+formname+"\">";
+        var defchoice = (i == alltiers.length-1 || alltiers[i] == "MINIAODSIM" ||  alltiers[i] == "NANOAODSIM" ) ? "full" : "yes";
+        var choice = tierFormVal(alltiers[i],defchoice);
+        for (var s = 0; s <= 2; ++s)  {
+            if (sels[s] == choice) {
+                ret += "<option value=\""+sels[s]+"\" selected=\"selected\">"+sels[s]+"</option>";
+            } else {
+                ret += "<option value=\""+sels[s]+"\">"+sels[s]+"</option>";
+            }
+        }
+        ret += "</select> "; 
+    }
+    document.getElementById("tiersel").innerHTML = ret
+    ret = "<tr><th>Dataset</th><th>Events</th>";
     for (var i = 0; i < tiers.length; ++i) {
         ret += "<th colspan=\""+tierspan[i]+"\">" + tiers[i]+ "</th>";
     }
@@ -205,24 +224,6 @@ function update() {
 
     }
     document.getElementById("total").innerHTML = ret;
-    ret = "Data tiers: ";
-    sels = [ "yes", "no", "full"];
-    for (var i = 0; i < alltiers.length; ++i) {
-        var formname = alltiers[i] in tierToFormName ? tierToFormName[alltiers[i]] : alltiers[i];
-        var friendly = alltiers[i] in tierToFriendlyName ? tierToFriendlyName[alltiers[i]] : alltiers[i];
-        ret += friendly + " <select name=\""+formname+"\">";
-        var defchoice = (i == alltiers.length-1 || alltiers[i] == "MINIAODSIM") ? "full" : "yes";
-        var choice = tierFormVal(alltiers[i],defchoice);
-        for (var s = 0; s <= 2; ++s)  {
-            if (sels[s] == choice) {
-                ret += "<option value=\""+sels[s]+"\" selected=\"selected\">"+sels[s]+"</option>";
-            } else {
-                ret += "<option value=\""+sels[s]+"\">"+sels[s]+"</option>";
-            }
-        }
-        ret += "</select> "; 
-    }
-    document.getElementById("tiersel").innerHTML = ret
     return false;
 }
 
@@ -250,34 +251,7 @@ Exclusion: <input type="text" name="exclude" size="20" maxlength="160" value="<?
 Processing: <input type="text" name="procmatch" size="40" maxlength="160" value="<?php print isset($_GET['procmatch']) ? htmlspecialchars($_GET['procmatch']) : ""?>" >
 <input type="button" value="Go" onclick="update()" />
 <input type="button" value="Reload" onclick="forceUpdate()" />
-<div id="tiersel">
-Data tiers:
-LHE <select name="lhe">
-<option value="yes" <?php if (isset($_GET['lhe']) && $_GET['lhe'] == "yes") print 'selected="selected"'; ?> >yes</option>
-<option value="no" <?php if (isset($_GET['lhe']) && $_GET['lhe'] == "no") print 'selected="selected"'; ?> >no</option>
-<option value="full" <?php if (isset($_GET['lhe']) && $_GET['lhe'] == "full") print 'selected="selected"'; ?> >full</option>
-</select>, GEN-SIM <select name="gensim">
-<option value="yes" <?php if (isset($_GET['gensim']) && $_GET['gensim'] == "yes") print 'selected="selected"'; ?> >yes</option>
-<option value="no" <?php if (isset($_GET['gensim']) && $_GET['gensim'] == "no") print 'selected="selected"'; ?> >no</option>
-<option value="full" <?php if (isset($_GET['gensim']) && $_GET['gensim'] == "full") print 'selected="selected"'; ?> >full</option>
-</select>, DIGI-RAW <select name="digiraw">
-<option value="yes" <?php if (isset($_GET['digiraw']) && $_GET['digiraw'] == "yes") print 'selected="selected"'; ?> >yes</option>
-<option value="no" <?php if (isset($_GET['digiraw']) && $_GET['digiraw'] == "no") print 'selected="selected"'; ?> >no</option>
-<option value="full" <?php if (isset($_GET['digiraw']) && $_GET['digiraw'] == "full") print 'selected="selected"'; ?> >full</option>
-</select>, AOD<select name="aod">
-<option value="yes" <?php if (isset($_GET['aod']) && $_GET['aod'] == "yes") print 'selected="selected"'; ?> >yes</option>
-<option value="no" <?php if (isset($_GET['aod']) && $_GET['aod'] == "no") print 'selected="selected"'; ?> >no</option>
-<option value="full" <?php if (isset($_GET['aod']) && $_GET['aod'] == "full") print 'selected="selected"'; ?> >full</option>
-</select>, MiniAOD <select name="mini">
-<option value="full" <?php if (isset($_GET['mini']) && $_GET['mini'] == "full") print 'selected="selected"'; ?> >full</option>
-<option value="yes" <?php if (isset($_GET['mini']) && $_GET['mini'] == "yes") print 'selected="selected"'; ?> >yes</option>
-<option value="no" <?php if (isset($_GET['mini']) && $_GET['mini'] == "no") print 'selected="selected"'; ?> >no</option>
-</select>, NanoAOD <select name="nano">
-<option value="full" <?php if (isset($_GET['nano']) && $_GET['nano'] == "full") print 'selected="selected"'; ?> >full</option>
-<option value="yes" <?php if (isset($_GET['nano']) && $_GET['nano'] == "yes") print 'selected="selected"'; ?> >yes</option>
-<option value="no" <?php if (isset($_GET['nano']) && $_GET['nano'] == "no") print 'selected="selected"'; ?> >no</option>
-</select> 
-</div>
+<div id="tiersel"> </div>
 </form>
 </div>
 <div>
